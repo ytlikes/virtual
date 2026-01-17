@@ -43,9 +43,23 @@ st.markdown("""
     #MainMenu, footer {visibility: hidden;}
     .stDeployButton {display:none;}
 
-    /* Esconde o recorder padrão */
-    .stAudio {
-        display: none;
+    /* Esconde completamente o recorder padrão */
+    div[data-testid="stVerticalBlock"] > div:has(audio) {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 5;
+        pointer-events: auto;
+    }
+    
+    /* Esconde só o visual mas mantém clicável */
+    div[data-testid="stVerticalBlock"] > div:has(audio) > div {
+        opacity: 0;
+        width: 200px;
+        height: 200px;
+        border-radius: 50%;
+        cursor: pointer;
     }
 
     /* Container centralizado */
@@ -144,6 +158,7 @@ st.markdown("""
     .orb-icon {
         font-size: 60px;
         filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.5));
+        pointer-events: none;
     }
 
     /* Status text minimalista */
@@ -204,9 +219,9 @@ st.markdown("""
 
 @st.cache_resource
 def get_ai_chain():
-    llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0.4, max_tokens=150)
+    llm = ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0.3, max_tokens=100)
     prompt = ChatPromptTemplate.from_template(
-        "Você é o MonkeyAI. Responda de forma breve e inteligente.\nHistórico:\n{history}\nHuman: {input}\nMonkeyAI:"
+        "Você é o MonkeyAI. Responda de forma breve e direta.\nHuman: {input}\nMonkeyAI:"
     )
     return prompt | llm | StrOutputParser()
 
@@ -314,40 +329,43 @@ def main():
     if "Voz" in input_mode:
         # Define visual do orbe baseado no estado
         orb_class = ""
-        orb_icon = "🐵"
+        orb_icon = ""
         status_text = "Clique no orbe para falar"
         
         if st.session_state.is_listening:
             orb_class = "listening"
-            orb_icon = "🎤"
-            status_text = "Ouvindo... Fale agora!"
+            orb_icon = ""
+            status_text = "Ouvindo..."
         elif st.session_state.is_processing:
             orb_class = "processing"
-            orb_icon = "⚡"
+            orb_icon = ""
             status_text = "Processando..."
         
         # Container do orbe
-        st.markdown(f"""
-        <div class="orb-container">
-            <div class="orb-wrapper">
-                <div class="orb-core {orb_class}">
-                    <div class="orb-icon">{orb_icon}</div>
-                </div>
-            </div>
-            <div class="status-text">{status_text}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        orb_container = st.container()
         
-        # Gravador de áudio (oculto via CSS)
-        if not st.session_state.is_processing:
-            audio_bytes = audio_recorder(
-                text="",
-                recording_color="#ef4444",
-                neutral_color="#3b82f6",
-                icon_name="microphone",
-                icon_size="3x",
-                key="audio_recorder"
-            )
+        with orb_container:
+            st.markdown(f"""
+            <div class="orb-container">
+                <div class="orb-wrapper">
+                    <div class="orb-core {orb_class}">
+                        <div class="orb-icon">{orb_icon}</div>
+                    </div>
+                </div>
+                <div class="status-text">{status_text}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Gravador de áudio (invisível mas clicável sobre o orbe)
+            if not st.session_state.is_processing:
+                audio_bytes = audio_recorder(
+                    text="",
+                    recording_color="#ef4444",
+                    neutral_color="#3b82f6",
+                    icon_name="",
+                    icon_size="1x",
+                    key="audio_recorder"
+                )
             
             # Processa quando há áudio
             if audio_bytes and not st.session_state.is_processing:
@@ -362,9 +380,6 @@ def main():
                     st.toast("⚠️ Não consegui entender")
                     st.session_state.is_processing = False
                     st.rerun()
-            elif audio_bytes is None and not st.session_state.is_listening and not st.session_state.is_processing:
-                # Mostra que está pronto para gravar
-                st.session_state.is_listening = False
     
     # MODO TEXTO
     else:
@@ -389,9 +404,9 @@ def main():
                     st.audio(audio_fp, format='audio/mp3')
         else:
             # Conversa com IA
-            chain = get_ai_chain()
-            hist = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages[-6:]])
-            ai_response = chain.invoke({"history": hist, "input": user_input})
+            with st.spinner("Pensando..."):
+                chain = get_ai_chain()
+                ai_response = chain.invoke({"input": user_input})
             
             st.session_state.messages.append({"role": "bot", "content": ai_response})
             
