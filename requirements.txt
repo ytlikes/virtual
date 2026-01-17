@@ -1,9 +1,10 @@
 streamlit
-langchain==0.1.0
-langchain-community==0.0.10
-langchain-core==0.1.10
+langchain
+langchain-community
+langchain-core
 langchain-groq
 python-dotenv
 SpeechRecognition
 gTTS
 streamlit-mic-recorder
+pydantic
