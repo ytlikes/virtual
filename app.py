@@ -342,44 +342,42 @@ def main():
             status_text = "Processando..."
         
         # Container do orbe
-        orb_container = st.container()
-        
-        with orb_container:
-            st.markdown(f"""
-            <div class="orb-container">
-                <div class="orb-wrapper">
-                    <div class="orb-core {orb_class}">
-                        <div class="orb-icon">{orb_icon}</div>
-                    </div>
+        st.markdown(f"""
+        <div class="orb-container">
+            <div class="orb-wrapper">
+                <div class="orb-core {orb_class}">
+                    <div class="orb-icon">{orb_icon}</div>
                 </div>
-                <div class="status-text">{status_text}</div>
             </div>
-            """, unsafe_allow_html=True)
+            <div class="status-text">{status_text}</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Gravador de áudio (invisível mas clicável sobre o orbe)
+        audio_bytes = None
+        if not st.session_state.is_processing:
+            audio_bytes = audio_recorder(
+                text="",
+                recording_color="#ef4444",
+                neutral_color="#3b82f6",
+                icon_name="",
+                icon_size="1x",
+                key="audio_recorder"
+            )
+        
+        # Processa quando há áudio
+        if audio_bytes and not st.session_state.is_processing:
+            st.session_state.is_listening = False
+            st.session_state.is_processing = True
+            st.rerun()
             
-            # Gravador de áudio (invisível mas clicável sobre o orbe)
-            if not st.session_state.is_processing:
-                audio_bytes = audio_recorder(
-                    text="",
-                    recording_color="#ef4444",
-                    neutral_color="#3b82f6",
-                    icon_name="",
-                    icon_size="1x",
-                    key="audio_recorder"
-                )
+            # Transcreve
+            user_input = transcribe_audio(audio_bytes)
             
-            # Processa quando há áudio
-            if audio_bytes and not st.session_state.is_processing:
-                st.session_state.is_listening = False
-                st.session_state.is_processing = True
+            if not user_input:
+                st.toast("⚠️ Não consegui entender")
+                st.session_state.is_processing = False
                 st.rerun()
-                
-                # Transcreve
-                user_input = transcribe_audio(audio_bytes)
-                
-                if not user_input:
-                    st.toast("⚠️ Não consegui entender")
-                    st.session_state.is_processing = False
-                    st.rerun()
     
     # MODO TEXTO
     else:
