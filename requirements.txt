@@ -8,3 +8,10 @@ SpeechRecognition
 gTTS
 streamlit-mic-recorder
 pydantic
+streamlit
+gtts
+SpeechRecognition
+langchain-groq
+langchain-core
+python-dotenv
+audio-recorder-streamlit
