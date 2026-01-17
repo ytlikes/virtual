@@ -10,15 +10,19 @@ from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+import pyaudio
+import wave
+import threading
+import numpy as np
 
 # ═══════════════════════════════════════════════════════════
-# ⚙️ CONFIGURAÇÃO & SEGURANÇA
+# ⚙️ CONFIGURAÇÃO
 # ═══════════════════════════════════════════════════════════
 st.set_page_config(
     page_title="MonkeyAI",
     page_icon="🐵",
     layout="centered",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 load_dotenv()
@@ -30,81 +34,30 @@ if not os.getenv("GROQ_API_KEY"):
     st.stop()
 
 # ═══════════════════════════════════════════════════════════
-# 🎨 CSS APRIMORADO COM FEEDBACK VISUAL CLARO
+# 🎨 CSS MINIMALISTA E CLEAN
 # ═══════════════════════════════════════════════════════════
 st.markdown("""
 <style>
-    /* Fundo e Geral */
     .stApp {
         background-color: #000000;
-        background-image: radial-gradient(circle at center, #111827 0%, #000000 100%);
+        background-image: radial-gradient(circle at center, #0a0e1a 0%, #000000 100%);
         color: #e0f2fe;
     }
     
-    /* Esconde elementos padrão do Streamlit */
     #MainMenu, footer {visibility: hidden;}
     .stDeployButton {display:none;}
 
-    /* --- CONTAINER DO ORBE --- */
-    .orb-section {
+    /* Container centralizado */
+    .orb-container {
         display: flex;
         flex-direction: column;
         justify-content: center;
         align-items: center;
-        min-height: 60vh;
-        padding: 2rem;
+        min-height: 70vh;
+        gap: 2rem;
     }
 
-    /* --- STATUS VISUAL GRANDE --- */
-    .status-banner {
-        background: linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(3, 105, 161, 0.1));
-        border: 2px solid rgba(56, 189, 248, 0.4);
-        border-radius: 16px;
-        padding: 1.5rem 3rem;
-        margin-bottom: 3rem;
-        text-align: center;
-        min-width: 400px;
-        box-shadow: 0 4px 20px rgba(56, 189, 248, 0.2);
-    }
-
-    .status-banner.listening {
-        background: linear-gradient(135deg, rgba(239, 68, 68, 0.3), rgba(185, 28, 28, 0.2));
-        border-color: rgba(239, 68, 68, 0.6);
-        box-shadow: 0 4px 20px rgba(239, 68, 68, 0.4);
-        animation: pulse-border 1.5s infinite;
-    }
-
-    .status-banner.processing {
-        background: linear-gradient(135deg, rgba(168, 85, 247, 0.3), rgba(126, 34, 206, 0.2));
-        border-color: rgba(168, 85, 247, 0.6);
-        box-shadow: 0 4px 20px rgba(168, 85, 247, 0.4);
-    }
-
-    @keyframes pulse-border {
-        0%, 100% { border-color: rgba(239, 68, 68, 0.6); }
-        50% { border-color: rgba(239, 68, 68, 1); }
-    }
-
-    .status-icon {
-        font-size: 48px;
-        margin-bottom: 0.5rem;
-        display: block;
-    }
-
-    .status-text {
-        font-size: 24px;
-        font-weight: 600;
-        color: #e0f2fe;
-        margin: 0;
-    }
-
-    .status-subtext {
-        font-size: 16px;
-        opacity: 0.7;
-        margin-top: 0.5rem;
-    }
-
-    /* --- O ORBE --- */
+    /* Orbe wrapper */
     .orb-wrapper {
         position: relative;
         width: 200px;
@@ -112,168 +65,128 @@ st.markdown("""
         display: flex;
         justify-content: center;
         align-items: center;
-        margin-bottom: 2rem;
     }
 
-    /* Anéis externos */
-    .orb-ring {
-        position: absolute;
-        border-radius: 50%;
-        border: 2px solid rgba(56, 189, 248, 0.3);
-        animation: ring-pulse 3s infinite ease-in-out;
-    }
-
-    .orb-ring:nth-child(1) {
-        width: 220px;
-        height: 220px;
-    }
-
-    .orb-ring:nth-child(2) {
-        width: 260px;
-        height: 260px;
-        animation-delay: 0.5s;
-    }
-
-    .orb-ring:nth-child(3) {
-        width: 300px;
-        height: 300px;
-        animation-delay: 1s;
-    }
-
-    @keyframes ring-pulse {
-        0%, 100% { 
-            opacity: 0.2; 
-            transform: scale(0.95);
-        }
-        50% { 
-            opacity: 0.5; 
-            transform: scale(1.05);
-        }
-    }
-
-    /* Núcleo do orbe */
+    /* Núcleo do orbe - ESTADO IDLE (azul suave) */
     .orb-core {
         width: 180px;
         height: 180px;
         border-radius: 50%;
         background: radial-gradient(circle at 30% 30%, 
-            rgba(56, 189, 248, 0.6), 
-            rgba(3, 105, 161, 0.9) 50%, 
-            rgba(0, 0, 0, 1) 100%);
+            rgba(56, 189, 248, 0.4), 
+            rgba(3, 105, 161, 0.7) 50%, 
+            rgba(0, 20, 40, 1) 100%);
         box-shadow: 
-            0 0 20px rgba(56, 189, 248, 0.5),
-            0 0 40px rgba(3, 105, 161, 0.3),
-            0 0 60px rgba(2, 132, 199, 0.2),
-            inset 0 0 30px rgba(255, 255, 255, 0.2);
+            0 0 20px rgba(56, 189, 248, 0.3),
+            0 0 40px rgba(3, 105, 161, 0.2),
+            inset 0 0 30px rgba(255, 255, 255, 0.1);
         cursor: pointer;
-        transition: all 0.3s ease;
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         position: relative;
-        z-index: 10;
         display: flex;
         justify-content: center;
         align-items: center;
-        animation: idle-glow 4s infinite ease-in-out;
+        animation: idle-pulse 4s infinite ease-in-out;
     }
 
+    /* Hover - brilho aumenta */
     .orb-core:hover {
-        transform: scale(1.1);
+        transform: scale(1.05);
         box-shadow: 
-            0 0 40px rgba(56, 189, 248, 0.8),
-            0 0 60px rgba(3, 105, 161, 0.5),
-            0 0 100px rgba(2, 132, 199, 0.3),
-            inset 0 0 50px rgba(255, 255, 255, 0.4);
+            0 0 40px rgba(56, 189, 248, 0.6),
+            0 0 80px rgba(3, 105, 161, 0.4),
+            inset 0 0 40px rgba(255, 255, 255, 0.2);
     }
 
-    @keyframes idle-glow {
-        0%, 100% { opacity: 0.9; }
+    /* ESTADO OUVINDO - vermelho pulsante */
+    .orb-core.listening {
+        background: radial-gradient(circle at 30% 30%, 
+            rgba(239, 68, 68, 0.8), 
+            rgba(185, 28, 28, 1) 50%, 
+            rgba(80, 10, 10, 1) 100%);
+        box-shadow: 
+            0 0 40px rgba(239, 68, 68, 0.8),
+            0 0 80px rgba(185, 28, 28, 0.6),
+            0 0 120px rgba(153, 27, 27, 0.4),
+            inset 0 0 40px rgba(255, 100, 100, 0.3);
+        animation: listening-pulse 1.2s infinite ease-in-out;
+    }
+
+    /* ESTADO PROCESSANDO - roxo girando */
+    .orb-core.processing {
+        background: radial-gradient(circle at 30% 30%, 
+            rgba(168, 85, 247, 0.8), 
+            rgba(126, 34, 206, 1) 50%, 
+            rgba(60, 10, 80, 1) 100%);
+        box-shadow: 
+            0 0 40px rgba(168, 85, 247, 0.8),
+            0 0 80px rgba(126, 34, 206, 0.6),
+            inset 0 0 40px rgba(200, 150, 255, 0.3);
+        animation: processing-spin 2s infinite linear;
+    }
+
+    @keyframes idle-pulse {
+        0%, 100% { opacity: 0.85; }
         50% { opacity: 1; }
     }
 
-    /* Estado OUVINDO */
-    .orb-core.listening {
-        background: radial-gradient(circle at 30% 30%, 
-            rgba(239, 68, 68, 0.9), 
-            rgba(185, 28, 28, 1) 50%, 
-            rgba(0, 0, 0, 1) 100%);
-        box-shadow: 
-            0 0 50px rgba(239, 68, 68, 1),
-            0 0 100px rgba(185, 28, 28, 0.7),
-            0 0 150px rgba(153, 27, 27, 0.5),
-            inset 0 0 50px rgba(255, 100, 100, 0.5);
-        animation: listening-pulse 1s infinite ease-in-out;
-    }
-
     @keyframes listening-pulse {
-        0%, 100% { 
-            transform: scale(1); 
-        }
-        50% { 
-            transform: scale(1.08); 
-        }
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.08); }
     }
 
-    /* Estado PROCESSANDO */
-    .orb-core.processing {
-        background: radial-gradient(circle at 30% 30%, 
-            rgba(168, 85, 247, 0.9), 
-            rgba(126, 34, 206, 1) 50%, 
-            rgba(0, 0, 0, 1) 100%);
-        box-shadow: 
-            0 0 50px rgba(168, 85, 247, 1),
-            0 0 100px rgba(126, 34, 206, 0.7),
-            0 0 150px rgba(107, 33, 168, 0.5);
-        animation: processing-rotate 2s infinite linear;
-    }
-
-    @keyframes processing-rotate {
+    @keyframes processing-spin {
         from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
     }
 
     .orb-icon {
         font-size: 60px;
-        text-shadow: 0 0 20px rgba(255, 255, 255, 0.8);
+        filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.5));
     }
 
-    /* --- CHAT MESSAGES --- */
+    /* Status text minimalista */
+    .status-text {
+        text-align: center;
+        font-size: 14px;
+        opacity: 0.6;
+        letter-spacing: 1px;
+    }
+
+    /* Chat messages */
     .chat-message {
-        padding: 1.2rem;
-        border-radius: 12px;
-        margin-bottom: 1rem;
-        display: flex;
-        flex-direction: column;
+        padding: 1rem;
+        border-radius: 10px;
+        margin-bottom: 0.8rem;
         animation: fadeIn 0.3s ease;
     }
 
     @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(10px); }
+        from { opacity: 0; transform: translateY(5px); }
         to { opacity: 1; transform: translateY(0); }
     }
 
     .user-message {
-        background-color: rgba(56, 189, 248, 0.15);
-        border-left: 4px solid #38bdf8;
-        align-items: flex-end;
+        background-color: rgba(56, 189, 248, 0.1);
+        border-left: 3px solid #38bdf8;
+        text-align: right;
     }
 
     .bot-message {
-        background-color: rgba(31, 41, 55, 0.7);
-        border-left: 4px solid rgba(168, 85, 247, 0.6);
-        align-items: flex-start;
+        background-color: rgba(31, 41, 55, 0.5);
+        border-left: 3px solid rgba(168, 85, 247, 0.5);
     }
 
     .message-text {
-        font-family: 'Inter', sans-serif;
-        font-size: 16px;
-        line-height: 1.6;
+        font-size: 15px;
+        line-height: 1.5;
     }
 
     .message-label {
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 600;
-        opacity: 0.8;
-        margin-bottom: 6px;
-        letter-spacing: 1px;
+        opacity: 0.6;
+        margin-bottom: 4px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -284,61 +197,97 @@ st.markdown("""
 
 @st.cache_resource
 def get_ai_chain():
-    """Carrega a IA Llama-3 via Groq"""
     llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0.4, max_tokens=150)
     prompt = ChatPromptTemplate.from_template(
-        "Você é o MonkeyAI, um assistente inteligente. Responda de forma breve, inteligente e prestativa.\nHistórico recente:\n{history}\nHuman: {input}\nMonkeyAI:"
+        "Você é o MonkeyAI. Responda de forma breve e inteligente.\nHistórico:\n{history}\nHuman: {input}\nMonkeyAI:"
     )
     return prompt | llm | StrOutputParser()
 
-def record_audio_with_silence_detection(duration=10, silence_threshold=500):
-    """Grava áudio do microfone e para automaticamente quando detectar silêncio"""
-    r = sr.Recognizer()
-    r.energy_threshold = silence_threshold
-    r.dynamic_energy_threshold = True
-    
-    try:
-        with sr.Microphone() as source:
-            # Ajusta para ruído ambiente
-            r.adjust_for_ambient_noise(source, duration=0.8)
-            
-            # Grava com detecção de pausa
-            audio_data = r.listen(
-                source, 
-                timeout=duration,
-                phrase_time_limit=duration
+class AudioRecorder:
+    """Gravador de áudio com detecção de silêncio melhorada"""
+    def __init__(self, silence_threshold=500, silence_duration=1.5):
+        self.CHUNK = 1024
+        self.FORMAT = pyaudio.paInt16
+        self.CHANNELS = 1
+        self.RATE = 16000
+        self.silence_threshold = silence_threshold
+        self.silence_duration = silence_duration
+        self.frames = []
+        self.is_recording = False
+        
+    def record(self):
+        """Grava até detectar silêncio"""
+        p = pyaudio.PyAudio()
+        
+        try:
+            stream = p.open(
+                format=self.FORMAT,
+                channels=self.CHANNELS,
+                rate=self.RATE,
+                input=True,
+                frames_per_buffer=self.CHUNK
             )
             
-            return audio_data
+            self.frames = []
+            silent_chunks = 0
+            max_silent_chunks = int(self.RATE / self.CHUNK * self.silence_duration)
             
-    except sr.WaitTimeoutError:
-        return None
-    except Exception as e:
-        st.error(f"❌ Erro ao gravar: {e}")
-        return None
+            # Grava até detectar silêncio
+            while True:
+                data = stream.read(self.CHUNK, exception_on_overflow=False)
+                self.frames.append(data)
+                
+                # Calcula volume
+                audio_data = np.frombuffer(data, dtype=np.int16)
+                volume = np.abs(audio_data).mean()
+                
+                if volume < self.silence_threshold:
+                    silent_chunks += 1
+                    if silent_chunks > max_silent_chunks and len(self.frames) > 10:
+                        break
+                else:
+                    silent_chunks = 0
+            
+            stream.stop_stream()
+            stream.close()
+            
+            # Salva em arquivo temporário
+            temp_filename = "temp_audio.wav"
+            wf = wave.open(temp_filename, 'wb')
+            wf.setnchannels(self.CHANNELS)
+            wf.setsampwidth(p.get_sample_size(self.FORMAT))
+            wf.setframerate(self.RATE)
+            wf.writeframes(b''.join(self.frames))
+            wf.close()
+            
+            p.terminate()
+            return temp_filename
+            
+        except Exception as e:
+            p.terminate()
+            st.error(f"Erro ao gravar: {e}")
+            return None
 
-def transcribe_audio(audio_data):
-    """Converte áudio em texto"""
+def transcribe_audio_file(filename):
+    """Transcreve arquivo de áudio"""
     r = sr.Recognizer()
     try:
-        text = r.recognize_google(audio_data, language='pt-BR')
-        return text
+        with sr.AudioFile(filename) as source:
+            audio_data = r.record(source)
+            text = r.recognize_google(audio_data, language='pt-BR')
+            return text
     except sr.UnknownValueError:
         return None
-    except sr.RequestError:
-        st.error("❌ Erro de conexão com serviço de reconhecimento.")
-        return None
     except Exception as e:
-        st.error(f"❌ Erro ao transcrever: {e}")
+        st.error(f"Erro ao transcrever: {e}")
         return None
 
 def text_to_speech_gtts(text, lang_choice):
     """Gera áudio usando gTTS"""
     try:
         clean_text = re.sub(r'http\S+', 'link', text)
-        
         language = 'pt'
-        tld = 'com.br' if lang_choice == 'Brasil (Padrão)' else 'pt'
+        tld = 'com.br' if lang_choice == 'Brasil' else 'pt'
         
         tts = gTTS(text=clean_text, lang=language, tld=tld, slow=False)
         audio_fp = io.BytesIO()
@@ -346,7 +295,7 @@ def text_to_speech_gtts(text, lang_choice):
         audio_fp.seek(0)
         return audio_fp
     except Exception as e:
-        st.warning(f"⚠️ Erro ao gerar voz: {e}")
+        st.warning(f"Erro ao gerar voz: {e}")
         return None
 
 def check_commands(text):
@@ -357,38 +306,29 @@ def check_commands(text):
     if re.search(r'\b(tocar|ouvir|ver|assistir|youtube|vídeo|música)\b', text_lower):
         term = re.sub(
             r'\b(tocar|ouvir|ver|assistir|video|vídeo|musica|música|no|youtube|o|a|de|da|do)\b',
-            '', 
-            text_lower, 
-            flags=re.IGNORECASE
+            '', text_lower, flags=re.IGNORECASE
         ).strip()
         
         if term:
             url = f"https://www.youtube.com/results?search_query={term.replace(' ', '+')}"
-            return "youtube", url, f"Abrindo YouTube para: {term}"
+            return "youtube", url, f"Abrindo YouTube: {term}"
     
     # Google
     if re.search(r'\b(pesquisar|buscar|google|procurar)\b', text_lower):
         term = re.sub(
             r'\b(pesquisar|buscar|google|procurar|sobre|o que é|a|no)\b',
-            '', 
-            text_lower, 
-            flags=re.IGNORECASE
+            '', text_lower, flags=re.IGNORECASE
         ).strip()
         
         if term:
             url = f"https://www.google.com/search?q={term.replace(' ', '+')}"
-            return "google", url, f"Pesquisando no Google: {term}"
+            return "google", url, f"Pesquisando: {term}"
     
     return "chat", None, None
 
 def open_link_js(url):
     """Abre link em nova aba"""
-    js_code = f"""
-    <script>
-        window.open('{url}', '_blank');
-    </script>
-    """
-    components.html(js_code, height=0)
+    components.html(f"<script>window.open('{url}', '_blank');</script>", height=0)
 
 # ═══════════════════════════════════════════════════════════
 # 📱 INTERFACE PRINCIPAL
@@ -398,188 +338,135 @@ def main():
     if "messages" not in st.session_state:
         st.session_state.messages = []
     if "app_state" not in st.session_state:
-        st.session_state.app_state = "idle"  # idle, listening, processing
+        st.session_state.app_state = "idle"
 
-    # --- BARRA LATERAL ---
+    # Barra lateral minimalista
     with st.sidebar:
-        st.header("🛠️ Configurações")
+        st.header("⚙️ Config")
         
-        input_mode = st.radio(
-            "Modo de Entrada:",
-            ("🗣️ Voz (Orbe)", "⌨️ Texto (Chat)"),
-            index=0
-        )
+        input_mode = st.radio("Modo:", ("🗣️ Voz", "⌨️ Texto"))
         
-        st.divider()
+        if "Voz" in input_mode:
+            voice_accent = st.selectbox("Sotaque:", ("Brasil", "Portugal"))
+            silence_threshold = st.slider("Sensibilidade:", 100, 1000, 400, 50)
         
-        st.markdown("### 🔊 Configurações de Voz")
-        voice_accent = st.selectbox(
-            "Sotaque:",
-            ("Brasil (Padrão)", "Portugal"),
-            index=0
-        )
-        
-        silence_threshold = st.slider(
-            "Sensibilidade de Silêncio:",
-            100, 2000, 500, 50,
-            help="Menor = mais sensível"
-        )
-        
-        st.divider()
-        
-        if st.button("🧹 Limpar Histórico"):
+        if st.button("🧹 Limpar"):
             st.session_state.messages = []
             st.session_state.app_state = "idle"
             st.rerun()
 
-    # --- TÍTULO ---
+    # Título
     st.markdown(
-        "<h1 style='text-align: center; margin-bottom: 30px;'>"
-        "MONKEY<span style='color:#38bdf8;'>AI</span> "
-        "<span style='font-size:0.5em; opacity:0.6;'>🐵</span>"
-        "</h1>", 
+        "<h1 style='text-align: center; margin-bottom: 40px;'>"
+        "MONKEY<span style='color:#38bdf8;'>AI</span></h1>", 
         unsafe_allow_html=True
     )
 
     user_input = None
 
-    # --- MODO ORBE ---
+    # MODO VOZ
     if "Voz" in input_mode:
-        # Container principal do orbe
-        st.markdown('<div class="orb-section">', unsafe_allow_html=True)
-        
-        # BANNER DE STATUS
         state = st.session_state.app_state
         
-        if state == "idle":
-            banner_class = ""
-            icon = "💤"
-            text = "MonkeyAI em Espera"
-            subtext = "Clique no orbe para começar"
-        elif state == "listening":
-            banner_class = "listening"
-            icon = "🎤"
-            text = "OUVINDO VOCÊ AGORA!"
-            subtext = "Fale seu comando... (para automaticamente no silêncio)"
-        else:  # processing
-            banner_class = "processing"
-            icon = "⚙️"
-            text = "Processando..."
-            subtext = "Aguarde um momento"
+        # Define visual do orbe
+        orb_class = ""
+        orb_icon = "🐵"
+        status_text = "Toque para ativar"
         
+        if state == "listening":
+            orb_class = "listening"
+            orb_icon = "🎤"
+            status_text = "Ouvindo..."
+        elif state == "processing":
+            orb_class = "processing"
+            orb_icon = "⚡"
+            status_text = "Processando..."
+        
+        # Renderiza orbe
         st.markdown(f"""
-        <div class="status-banner {banner_class}">
-            <span class="status-icon">{icon}</span>
-            <p class="status-text">{text}</p>
-            <p class="status-subtext">{subtext}</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # ORBE
-        orb_class = "listening" if state == "listening" else ("processing" if state == "processing" else "")
-        orb_icon = "🔴" if state == "listening" else ("⚡" if state == "processing" else "🐵")
-        
-        st.markdown(f"""
-        <div class="orb-wrapper">
-            <div class="orb-ring"></div>
-            <div class="orb-ring"></div>
-            <div class="orb-ring"></div>
-            <div class="orb-core {orb_class}">
-                <div class="orb-icon">{orb_icon}</div>
+        <div class="orb-container">
+            <div class="orb-wrapper">
+                <div class="orb-core {orb_class}">
+                    <div class="orb-icon">{orb_icon}</div>
+                </div>
             </div>
+            <div class="status-text">{status_text}</div>
         </div>
         """, unsafe_allow_html=True)
         
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        # BOTÃO DE ATIVAÇÃO
+        # Botão de ativação
         if state == "idle":
-            if st.button("🎙️ ATIVAR MONKEYAI", key="activate", use_container_width=True, type="primary"):
+            if st.button("Ativar", key="activate", use_container_width=True):
                 st.session_state.app_state = "listening"
                 st.rerun()
         
-        # PROCESSAMENTO DE ÁUDIO
+        # Gravação
         if state == "listening":
-            # Grava áudio
-            audio_data = record_audio_with_silence_detection(
-                duration=10,
-                silence_threshold=silence_threshold
-            )
+            recorder = AudioRecorder(silence_threshold=silence_threshold)
+            audio_file = recorder.record()
             
-            if audio_data:
+            if audio_file:
                 st.session_state.app_state = "processing"
                 st.rerun()
                 
-                # Transcreve
-                user_input = transcribe_audio(audio_data)
+                user_input = transcribe_audio_file(audio_file)
+                
+                # Remove arquivo temporário
+                try:
+                    os.remove(audio_file)
+                except:
+                    pass
                 
                 if not user_input:
-                    st.toast("⚠️ Não consegui entender. Tente novamente.")
+                    st.toast("⚠️ Não entendi")
                     st.session_state.app_state = "idle"
-                    time.sleep(1)
                     st.rerun()
             else:
                 st.session_state.app_state = "idle"
                 st.rerun()
     
-    # --- MODO TEXTO ---
+    # MODO TEXTO
     else:
-        user_input = st.chat_input("Digite seu comando aqui...")
+        user_input = st.chat_input("Digite aqui...")
 
-    # --- PROCESSAMENTO DE ENTRADA ---
+    # PROCESSAMENTO
     if user_input:
-        # Adiciona ao histórico
         st.session_state.messages.append({"role": "user", "content": user_input})
         
-        # Verifica comandos
         cmd_type, url, reply_text = check_commands(user_input)
         
-        ai_response = ""
-        
         if cmd_type != "chat":
-            # Comando de redirecionamento
             ai_response = reply_text
             st.session_state.messages.append({"role": "bot", "content": ai_response})
-            
-            st.toast(f"🚀 {ai_response}")
             open_link_js(url)
             
-            # Áudio
             if "Voz" in input_mode:
                 audio_fp = text_to_speech_gtts(ai_response, voice_accent)
                 if audio_fp:
-                    st.audio(audio_fp, format='audio/mp3', autoplay=True)
+                    st.audio(audio_fp, format='audio/mp3')
         else:
-            # Conversa com IA
             chain = get_ai_chain()
-            hist_text = "\n".join([
-                f"{m['role']}: {m['content']}" 
-                for m in st.session_state.messages[-6:]
-            ])
-            ai_response = chain.invoke({"history": hist_text, "input": user_input})
+            hist = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages[-6:]])
+            ai_response = chain.invoke({"history": hist, "input": user_input})
             
             st.session_state.messages.append({"role": "bot", "content": ai_response})
             
-            # Áudio
             if "Voz" in input_mode:
                 audio_fp = text_to_speech_gtts(ai_response, voice_accent)
                 if audio_fp:
-                    st.audio(audio_fp, format='audio/mp3', autoplay=True)
+                    st.audio(audio_fp, format='audio/mp3')
         
-        # Reseta estado
         st.session_state.app_state = "idle"
         st.rerun()
 
-    # --- HISTÓRICO DE CHAT ---
+    # HISTÓRICO
     if st.session_state.messages:
         st.divider()
-        st.markdown("### 💬 Histórico de Conversas")
-        
         for msg in st.session_state.messages:
-            css_class = "user-message" if msg["role"] == "user" else "bot-message"
-            label = "VOCÊ" if msg["role"] == "user" else "MONKEYAI 🐵"
+            css = "user-message" if msg["role"] == "user" else "bot-message"
+            label = "VOCÊ" if msg["role"] == "user" else "MONKEYAI"
             st.markdown(f"""
-                <div class="chat-message {css_class}">
+                <div class="chat-message {css}">
                     <div class="message-label">{label}</div>
                     <div class="message-text">{msg['content']}</div>
                 </div>
