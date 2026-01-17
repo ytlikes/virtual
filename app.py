@@ -242,25 +242,23 @@ def transcribe_audio(audio_bytes):
     """Transcreve áudio bytes de forma otimizada"""
     if not audio_bytes or len(audio_bytes) < 1000:
         return None
-        
+    
     r = sr.Recognizer()
     r.energy_threshold = 300
-    r.dynamic_energy_threshold = False
+    r.pause_threshold = 0.5  # Reduz delay
     
     try:
-        # Converte bytes para AudioData
-        audio_data = sr.AudioData(audio_bytes, 16000, 2)
+        # Usa sample rate correto do audio_recorder
+        audio_data = sr.AudioData(audio_bytes, 44100, 2)
         
-        # Usa reconhecimento com timeout menor
-        text = r.recognize_google(audio_data, language='pt-BR', show_all=False)
-        return text if text else None
+        # Reconhecimento direto sem timeout extra
+        text = r.recognize_google(audio_data, language='pt-BR')
+        return text.strip() if text else None
     except sr.UnknownValueError:
         return None
     except sr.RequestError:
-        st.error("Erro de conexão")
         return None
-    except Exception as e:
-        st.error(f"Erro: {str(e)[:50]}")
+    except Exception:
         return None
 
 def text_to_speech_gtts(text, lang_choice):
@@ -325,6 +323,8 @@ def main():
         st.session_state.is_listening = False
     if "is_processing" not in st.session_state:
         st.session_state.is_processing = False
+    if "last_audio" not in st.session_state:
+        st.session_state.last_audio = None
 
     # Barra lateral minimalista
     with st.sidebar:
@@ -378,76 +378,85 @@ def main():
         </div>
         """, unsafe_allow_html=True)
         
-        # Gravador de áudio (invisível mas clicável sobre o orbe)
+        # Gravador de áudio
         audio_bytes = None
         if not st.session_state.is_processing:
             audio_bytes = audio_recorder(
-                text="Clique para gravar",
+                text="🎤 Gravar",
                 recording_color="#ef4444",
                 neutral_color="#3b82f6",
                 icon_name="microphone",
                 icon_size="2x",
                 key="audio_recorder",
-                pause_threshold=3.0,
-                sample_rate=16000
+                pause_threshold=2.0,
+                sample_rate=44100
             )
         
-        # Processa quando há áudio
-        if audio_bytes:
-            if len(audio_bytes) > 1000:  # Verifica se tem conteúdo suficiente
-                if not st.session_state.is_processing:
-                    st.session_state.is_listening = False
-                    st.session_state.is_processing = True
+        # Processa áudio IMEDIATAMENTE quando recebido
+        if audio_bytes and len(audio_bytes) > 2000:
+            if not st.session_state.is_processing:
+                st.session_state.is_processing = True
+                
+                # Transcreve ANTES do rerun
+                user_input = transcribe_audio(audio_bytes)
+                
+                if user_input:
+                    # Adiciona ao histórico
+                    st.session_state.messages.append({"role": "user", "content": user_input})
+                    
+                    # Processa comando
+                    cmd_type, url, reply_text = check_commands(user_input)
+                    
+                    if cmd_type != "chat":
+                        st.session_state.messages.append({"role": "bot", "content": reply_text})
+                        st.toast(f"🚀 {reply_text}")
+                        open_link_js(url)
+                    else:
+                        # IA - executa direto
+                        chain = get_ai_chain()
+                        ai_response = chain.invoke({"input": user_input})
+                        st.session_state.messages.append({"role": "bot", "content": ai_response})
+                        
+                        # Gera áudio de forma assíncrona (não bloqueia)
+                        try:
+                            audio_fp = text_to_speech_gtts(ai_response, voice_accent)
+                            if audio_fp:
+                                st.session_state['last_audio'] = audio_fp
+                        except:
+                            pass
+                    
+                    st.session_state.is_processing = False
                     st.rerun()
-                    
-                    # Transcreve
-                    user_input = transcribe_audio(audio_bytes)
-                    
-                    if not user_input:
-                        st.toast("⚠️ Áudio muito curto ou não entendi")
-                        st.session_state.is_processing = False
-                        st.rerun()
-            else:
-                st.session_state.is_listening = True
+                else:
+                    st.toast("⚠️ Não entendi")
+                    st.session_state.is_processing = False
+                    st.rerun()
     
     # MODO TEXTO
     else:
         user_input = st.chat_input("Digite aqui...")
-
-    # PROCESSAMENTO
-    if user_input:
-        st.session_state.messages.append({"role": "user", "content": user_input})
         
-        cmd_type, url, reply_text = check_commands(user_input)
-        
-        if cmd_type != "chat":
-            # Comando de redirecionamento
-            ai_response = reply_text
-            st.session_state.messages.append({"role": "bot", "content": ai_response})
-            st.toast(f"🚀 {ai_response}")
-            open_link_js(url)
+        # Processamento modo texto
+        if user_input:
+            st.session_state.messages.append({"role": "user", "content": user_input})
             
-            if "Voz" in input_mode:
-                audio_fp = text_to_speech_gtts(ai_response, voice_accent)
-                if audio_fp:
-                    st.audio(audio_fp, format='audio/mp3')
-        else:
-            # Conversa com IA (modo rápido)
-            chain = get_ai_chain()
-            ai_response = chain.invoke({"input": user_input})
+            cmd_type, url, reply_text = check_commands(user_input)
             
-            st.session_state.messages.append({"role": "bot", "content": ai_response})
+            if cmd_type != "chat":
+                st.session_state.messages.append({"role": "bot", "content": reply_text})
+                st.toast(f"🚀 {reply_text}")
+                open_link_js(url)
+            else:
+                chain = get_ai_chain()
+                ai_response = chain.invoke({"input": user_input})
+                st.session_state.messages.append({"role": "bot", "content": ai_response})
             
-            # Gera áudio apenas se for modo voz
-            if "Voz" in input_mode:
-                audio_fp = text_to_speech_gtts(ai_response, voice_accent)
-                if audio_fp:
-                    st.audio(audio_fp, format='audio/mp3', autoplay=True)
-        
-        # Reseta estados
-        st.session_state.is_listening = False
-        st.session_state.is_processing = False
-        st.rerun()
+            st.rerun()
+    
+    # Reproduz último áudio se existir
+    if 'last_audio' in st.session_state and st.session_state.last_audio:
+        st.audio(st.session_state.last_audio, format='audio/mp3', autoplay=True)
+        st.session_state.last_audio = None
 
     # HISTÓRICO
     if st.session_state.messages:
