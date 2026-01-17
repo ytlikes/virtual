@@ -323,8 +323,6 @@ def main():
         st.session_state.is_listening = False
     if "is_processing" not in st.session_state:
         st.session_state.is_processing = False
-    if "last_audio" not in st.session_state:
-        st.session_state.last_audio = None
 
     # Barra lateral minimalista
     with st.sidebar:
