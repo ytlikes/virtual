@@ -4,6 +4,7 @@ import re
 import time
 import logging
 import streamlit as st
+import streamlit.components.v1 as components
 from gtts import gTTS
 import speech_recognition as sr
 from dotenv import load_dotenv
@@ -19,7 +20,6 @@ from typing import Optional, Tuple
 # 🔧 CONFIGURAÇÕES E SEGURANÇA
 # ═══════════════════════════════════════════════════════════
 
-# Configuração da Página deve ser a primeira linha do Streamlit
 st.set_page_config(
     page_title="Jarvis Mobile",
     page_icon="🤖",
@@ -27,9 +27,8 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Carregamento de Chaves (Híbrido: Local .env ou Nuvem Secrets)
+# Carregamento de Chaves
 load_dotenv()
-
 if "GROQ_API_KEY" in st.secrets:
     os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
 
@@ -40,13 +39,10 @@ if not os.getenv("GROQ_API_KEY"):
 class Config:
     MODEL_NAME = "llama-3.1-8b-instant"
     LANGUAGE = 'pt-BR'
-    AI_TEMPLATE = """Você é um assistente pessoal inteligente, gentil e eficiente.
-    Seu estilo é profissional mas amigável, como uma versão moderna do Jarvis.
-    
+    AI_TEMPLATE = """Você é um assistente pessoal inteligente.
     Diretrizes:
-    - Seja conciso (máximo 2 frases), pois o usuário está no celular.
-    - Responda sempre em português brasileiro.
-    - Use emojis com moderação.
+    - Seja extremamente breve (1 frase curta).
+    - Aja naturalmente.
     
     Histórico: {historico_conversa}
     Usuário: {input}
@@ -58,129 +54,109 @@ class CommandType(Enum):
     CHAT = "chat"
 
 # ═══════════════════════════════════════════════════════════
-# 🎨 ESTILOS CSS (FUTURISTA/MOBILE)
+# 🎨 ESTILOS CSS (FUTURISTA/NEON)
 # ═══════════════════════════════════════════════════════════
 st.markdown("""
 <style>
-    /* Fundo e Geral */
     .stApp {
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-        color: #f1f5f9;
+        background-color: #000000;
+        background-image: radial-gradient(circle at 50% 50%, #1e1e2f 0%, #000000 100%);
+        color: #00ffcc;
     }
     
     /* Balões de Chat */
     .chat-bubble {
-        padding: 15px;
-        border-radius: 15px;
-        margin-bottom: 12px;
-        font-size: 16px;
-        line-height: 1.5;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        padding: 12px 18px;
+        border-radius: 20px;
+        margin-bottom: 10px;
+        font-family: 'Segoe UI', sans-serif;
+        box-shadow: 0 0 10px rgba(0, 255, 204, 0.1);
     }
     
     .user-bubble {
-        background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-        color: white;
-        border-bottom-right-radius: 2px;
-        margin-left: 15%;
+        background: rgba(0, 255, 204, 0.1);
+        border: 1px solid #00ffcc;
+        color: #00ffcc;
         text-align: right;
+        margin-left: 20%;
+        border-bottom-right-radius: 4px;
     }
     
     .bot-bubble {
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        color: #e2e8f0;
-        border-bottom-left-radius: 2px;
-        margin-right: 15%;
-    }
-
-    /* Links de Comandos */
-    .command-link {
-        display: inline-block;
-        margin-top: 10px;
-        padding: 8px 16px;
-        background-color: #ef4444; /* Vermelho YouTube */
-        color: white !important;
-        text-decoration: none;
-        border-radius: 20px;
-        font-weight: bold;
-    }
-    .google-link {
-        background-color: #3b82f6; /* Azul Google */
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        color: #ffffff;
+        margin-right: 20%;
+        border-bottom-left-radius: 4px;
     }
 
     /* Botão de Gravar */
     div[data-testid="stVerticalBlock"] button {
+        background-color: #ff0055 !important;
+        border: none;
         border-radius: 50%;
-        width: 60px;
-        height: 60px;
+        width: 70px;
+        height: 70px;
+        box-shadow: 0 0 20px #ff0055;
+        transition: transform 0.2s;
     }
-    
-    /* Título */
-    h1 {
-        background: linear-gradient(90deg, #60a5fa, #a78bfa);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        text-align: center;
+    div[data-testid="stVerticalBlock"] button:active {
+        transform: scale(0.9);
+        box-shadow: 0 0 10px #ff0055;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════
-# 🧠 LÓGICA (ÁUDIO, IA, COMANDOS)
+# 🛠️ FERRAMENTAS (JAVASCRIPT E ÁUDIO)
 # ═══════════════════════════════════════════════════════════
 
+def open_url_automatically(url):
+    """Injeta JavaScript para abrir aba automaticamente"""
+    js = f"""
+    <script>
+        window.open('{url}', '_blank').focus();
+    </script>
+    """
+    components.html(js, height=0, width=0)
+
 class AudioManager:
-    """Gerencia áudio adaptado para Web/Mobile"""
-    
     @staticmethod
     def process_mic_input(audio_bytes: bytes) -> Optional[str]:
-        """Converte áudio do navegador em texto"""
         r = sr.Recognizer()
         try:
             audio_file = io.BytesIO(audio_bytes)
             with sr.AudioFile(audio_file) as source:
                 audio_data = r.record(source)
-                text = r.recognize_google(audio_data, language=Config.LANGUAGE)
-                return text
-        except Exception as e:
+                return r.recognize_google(audio_data, language=Config.LANGUAGE)
+        except:
             return None
 
     @staticmethod
     def text_to_speech(text: str):
-        """Gera áudio MP3 para o navegador tocar"""
         try:
-            # Remove links/markdown para não ler códigos estranhos
-            clean_text = re.sub(r'\[.*?\]\(.*?\)', '', text) 
+            clean_text = re.sub(r'http\S+', '', text) # Não ler URLs
             tts = gTTS(text=clean_text, lang='pt', slow=False)
             audio_fp = io.BytesIO()
             tts.write_to_fp(audio_fp)
             audio_fp.seek(0)
             return audio_fp
-        except Exception:
+        except:
             return None
 
 class CommandProcessor:
-    """Processa comandos (Adaptado para Links Web)"""
-    
     YOUTUBE_TRIGGERS = [r'\btocar\b', r'\bouvir\b', r'\bmusica\b', r'\bver\b.*\bvideo\b', r'\byoutube\b']
     GOOGLE_TRIGGERS = [r'\bpesquisar\b', r'\bbuscar\b', r'\bgoogle\b']
     
     @classmethod
     def process(cls, text: str) -> Tuple[CommandType, Optional[str]]:
         text_lower = text.lower().strip()
-        
         for pattern in cls.YOUTUBE_TRIGGERS:
             if re.search(pattern, text_lower):
-                term = cls._extract_term(text_lower, cls.YOUTUBE_TRIGGERS)
-                return CommandType.YOUTUBE, term
-                
+                return CommandType.YOUTUBE, cls._extract_term(text_lower, cls.YOUTUBE_TRIGGERS)
         for pattern in cls.GOOGLE_TRIGGERS:
             if re.search(pattern, text_lower):
-                term = cls._extract_term(text_lower, cls.GOOGLE_TRIGGERS)
-                return CommandType.GOOGLE, term
-                
+                return CommandType.GOOGLE, cls._extract_term(text_lower, cls.GOOGLE_TRIGGERS)
         return CommandType.CHAT, None
 
     @staticmethod
@@ -188,18 +164,13 @@ class CommandProcessor:
         result = text
         for pattern in patterns:
             result = re.sub(pattern, '', result, flags=re.IGNORECASE)
-        stop_words = ['a', 'o', 'de', 'no', 'na', 'para', 'em', 'video', 'musica', 'sobre']
-        words = [w for w in result.split() if w not in stop_words]
+        words = [w for w in result.split() if w not in ['a', 'o', 'de', 'para', 'em', 'video', 'musica']]
         return ' '.join(words).strip()
 
 class AIManager:
-    """Gerencia LangChain"""
     def __init__(self):
         if 'chain' not in st.session_state:
-            prompt = PromptTemplate(
-                input_variables=["historico_conversa", "input"],
-                template=Config.AI_TEMPLATE
-            )
+            prompt = PromptTemplate(input_variables=["historico_conversa", "input"], template=Config.AI_TEMPLATE)
             llm = ChatGroq(model_name=Config.MODEL_NAME, temperature=0.6)
             memory = ConversationBufferMemory(memory_key="historico_conversa", input_key="input")
             st.session_state.chain = LLMChain(llm=llm, prompt=prompt, memory=memory)
@@ -208,96 +179,70 @@ class AIManager:
         try:
             return st.session_state.chain.run(input=text)
         except:
-            return "Desculpe, estou em manutenção."
+            return "Estou reiniciando meus sistemas..."
 
 # ═══════════════════════════════════════════════════════════
-# 📱 INTERFACE PRINCIPAL
+# 📱 APP PRINCIPAL
 # ═══════════════════════════════════════════════════════════
 
 def main():
-    st.markdown("<h1>🤖 Jarvis Mobile</h1>", unsafe_allow_html=True)
+    if 'messages' not in st.session_state: st.session_state.messages = []
     
-    # Inicialização
-    if 'messages' not in st.session_state:
-        st.session_state.messages = []
-    
-    ai_manager = AIManager()
+    # Header Futurista
+    st.markdown("<h1 style='text-align: center; text-shadow: 0 0 10px #00ffcc;'>JARVIS <span style='font-size: 15px; vertical-align: top;'>ONLINE</span></h1>", unsafe_allow_html=True)
 
-    # --- ÁREA DE INPUT ---
-    # Container fixo ou no topo para facilitar no mobile
+    # --- INPUT ---
     col_mic, col_text = st.columns([1, 4])
-    
     with col_mic:
-        audio_data = mic_recorder(
-            start_prompt="🎤",
-            stop_prompt="⏹️",
-            key='recorder',
-            format="wav",
-            use_container_width=True
-        )
-    
+        audio_data = mic_recorder(start_prompt="🔊", stop_prompt="⏹️", key='recorder', format="wav", use_container_width=True)
     with col_text:
-        text_input = st.chat_input("Digite ou fale...")
+        text_input = st.chat_input("Comando de texto...")
 
-    # Processamento
-    user_input = None
-    
-    # 1. Checa Áudio
-    if audio_data:
-        user_input = AudioManager.process_mic_input(audio_data['bytes'])
-    
-    # 2. Checa Texto (Chat Input do Streamlit)
-    if text_input:
-        user_input = text_input
+    user_input = AudioManager.process_mic_input(audio_data['bytes']) if audio_data else text_input
 
-    # 3. Executa Lógica
+    # --- PROCESSAMENTO ---
     if user_input:
-        # Salva msg usuário
         st.session_state.messages.append({"role": "user", "content": user_input})
-        
-        # Processa comando ou IA
         cmd_type, term = CommandProcessor.process(user_input)
         
-        bot_response = ""
-        audio_response = None
-        
+        bot_reply = ""
+        redirect_url = None
+
         if cmd_type == CommandType.YOUTUBE:
-            url = f"https://www.youtube.com/results?search_query={term}"
-            bot_response = f"🎵 Abrindo YouTube para: **{term}**\n\n<a href='{url}' target='_blank' class='command-link'>▶️ Clique para Assistir</a>"
-            audio_response = AudioManager.text_to_speech(f"Abrindo YouTube para {term}")
+            redirect_url = f"https://www.youtube.com/results?search_query={term}"
+            bot_reply = f"Executando protocolo de vídeo: {term}"
+            st.toast(f"🚀 Redirecionando para YouTube: {term}", icon="🎵")
             
         elif cmd_type == CommandType.GOOGLE:
-            url = f"https://www.google.com/search?q={term}"
-            bot_response = f"🔍 Pesquisando: **{term}**\n\n<a href='{url}' target='_blank' class='command-link google-link'>🌐 Clique para Ver</a>"
-            audio_response = AudioManager.text_to_speech(f"Pesquisando no Google sobre {term}")
+            redirect_url = f"https://www.google.com/search?q={term}"
+            bot_reply = f"Pesquisando na rede: {term}"
+            st.toast(f"🚀 Pesquisando no Google: {term}", icon="🔍")
             
         else:
-            with st.spinner("Pensando..."):
-                bot_response = ai_manager.get_response(user_input)
-                audio_response = AudioManager.text_to_speech(bot_response)
+            bot_reply = AIManager().get_response(user_input)
 
-        # Salva resposta
-        st.session_state.messages.append({"role": "bot", "content": bot_response})
-        
-        # Toca Áudio (Autoplay)
-        if audio_response:
-            st.audio(audio_response, format="audio/mp3", autoplay=True)
+        # Salva e Fala
+        st.session_state.messages.append({"role": "bot", "content": bot_reply})
+        audio = AudioManager.text_to_speech(bot_reply)
+        if audio: st.audio(audio, format="audio/mp3", autoplay=True)
+
+        # REDIRECIONAMENTO AUTOMÁTICO (JavaScript)
+        if redirect_url:
+            open_url_automatically(redirect_url)
+            # Link de backup caso o pop-up bloqueie
+            st.markdown(f"<br><a href='{redirect_url}' target='_blank' style='background: #333; color: white; padding: 10px; border-radius: 10px; text-decoration: none;'>🔗 Clique aqui se não abrir automaticamente</a>", unsafe_allow_html=True)
+            time.sleep(2) # Pausa dramática antes do rerun
+            st.rerun()
             
-        # Força atualização para limpar inputs
-        st.rerun()
+        # Rerun para limpar input de texto (se for chat normal)
+        if cmd_type == CommandType.CHAT:
+            time.sleep(1)
+            st.rerun()
 
-    # --- EXIBIÇÃO DO HISTÓRICO ---
-    st.write("---")
+    # --- HISTÓRICO ---
     for msg in reversed(st.session_state.messages):
         role_class = "user-bubble" if msg["role"] == "user" else "bot-bubble"
-        icon = "👤" if msg["role"] == "user" else "🤖"
-        
-        st.markdown(f"""
-        <div class="chat-bubble {role_class}">
-            <div style="font-size: 12px; opacity: 0.7; margin-bottom: 4px;">{icon} {msg['role'].upper()}</div>
-            {msg['content']}
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"<div class='chat-bubble {role_class}'>{msg['content']}</div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
