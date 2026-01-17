@@ -380,6 +380,9 @@ def main():
                     st.toast("⚠️ Não consegui entender")
                     st.session_state.is_processing = False
                     st.rerun()
+            elif audio_bytes is None and not st.session_state.is_listening and not st.session_state.is_processing:
+                # Mostra que está pronto para gravar
+                st.session_state.is_listening = False
     
     # MODO TEXTO
     else:
