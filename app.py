@@ -1,7 +1,6 @@
 import os
 import io
 import re
-import time
 import streamlit as st
 import streamlit.components.v1 as components
 from gtts import gTTS
@@ -10,10 +9,7 @@ from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-import pyaudio
-import wave
-import threading
-import numpy as np
+from audio_recorder_streamlit import audio_recorder
 
 # ═══════════════════════════════════════════════════════════
 # ⚙️ CONFIGURAÇÃO
@@ -47,13 +43,18 @@ st.markdown("""
     #MainMenu, footer {visibility: hidden;}
     .stDeployButton {display:none;}
 
+    /* Esconde o recorder padrão */
+    .stAudio {
+        display: none;
+    }
+
     /* Container centralizado */
     .orb-container {
         display: flex;
         flex-direction: column;
         justify-content: center;
         align-items: center;
-        min-height: 70vh;
+        min-height: 65vh;
         gap: 2rem;
     }
 
@@ -65,9 +66,10 @@ st.markdown("""
         display: flex;
         justify-content: center;
         align-items: center;
+        cursor: pointer;
     }
 
-    /* Núcleo do orbe - ESTADO IDLE (azul suave) */
+    /* Núcleo do orbe - ESTADO IDLE */
     .orb-core {
         width: 180px;
         height: 180px;
@@ -80,7 +82,6 @@ st.markdown("""
             0 0 20px rgba(56, 189, 248, 0.3),
             0 0 40px rgba(3, 105, 161, 0.2),
             inset 0 0 30px rgba(255, 255, 255, 0.1);
-        cursor: pointer;
         transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         position: relative;
         display: flex;
@@ -89,8 +90,8 @@ st.markdown("""
         animation: idle-pulse 4s infinite ease-in-out;
     }
 
-    /* Hover - brilho aumenta */
-    .orb-core:hover {
+    /* Hover */
+    .orb-wrapper:hover .orb-core {
         transform: scale(1.05);
         box-shadow: 
             0 0 40px rgba(56, 189, 248, 0.6),
@@ -151,6 +152,12 @@ st.markdown("""
         font-size: 14px;
         opacity: 0.6;
         letter-spacing: 1px;
+        min-height: 20px;
+    }
+
+    /* Esconde o botão de gravação padrão */
+    div[data-testid="stHorizontalBlock"] > div:has(audio) {
+        display: none !important;
     }
 
     /* Chat messages */
@@ -203,80 +210,17 @@ def get_ai_chain():
     )
     return prompt | llm | StrOutputParser()
 
-class AudioRecorder:
-    """Gravador de áudio com detecção de silêncio melhorada"""
-    def __init__(self, silence_threshold=500, silence_duration=1.5):
-        self.CHUNK = 1024
-        self.FORMAT = pyaudio.paInt16
-        self.CHANNELS = 1
-        self.RATE = 16000
-        self.silence_threshold = silence_threshold
-        self.silence_duration = silence_duration
-        self.frames = []
-        self.is_recording = False
-        
-    def record(self):
-        """Grava até detectar silêncio"""
-        p = pyaudio.PyAudio()
-        
-        try:
-            stream = p.open(
-                format=self.FORMAT,
-                channels=self.CHANNELS,
-                rate=self.RATE,
-                input=True,
-                frames_per_buffer=self.CHUNK
-            )
-            
-            self.frames = []
-            silent_chunks = 0
-            max_silent_chunks = int(self.RATE / self.CHUNK * self.silence_duration)
-            
-            # Grava até detectar silêncio
-            while True:
-                data = stream.read(self.CHUNK, exception_on_overflow=False)
-                self.frames.append(data)
-                
-                # Calcula volume
-                audio_data = np.frombuffer(data, dtype=np.int16)
-                volume = np.abs(audio_data).mean()
-                
-                if volume < self.silence_threshold:
-                    silent_chunks += 1
-                    if silent_chunks > max_silent_chunks and len(self.frames) > 10:
-                        break
-                else:
-                    silent_chunks = 0
-            
-            stream.stop_stream()
-            stream.close()
-            
-            # Salva em arquivo temporário
-            temp_filename = "temp_audio.wav"
-            wf = wave.open(temp_filename, 'wb')
-            wf.setnchannels(self.CHANNELS)
-            wf.setsampwidth(p.get_sample_size(self.FORMAT))
-            wf.setframerate(self.RATE)
-            wf.writeframes(b''.join(self.frames))
-            wf.close()
-            
-            p.terminate()
-            return temp_filename
-            
-        except Exception as e:
-            p.terminate()
-            st.error(f"Erro ao gravar: {e}")
-            return None
-
-def transcribe_audio_file(filename):
-    """Transcreve arquivo de áudio"""
+def transcribe_audio(audio_bytes):
+    """Transcreve áudio bytes"""
     r = sr.Recognizer()
     try:
-        with sr.AudioFile(filename) as source:
-            audio_data = r.record(source)
-            text = r.recognize_google(audio_data, language='pt-BR')
-            return text
+        audio_data = sr.AudioData(audio_bytes, 44100, 2)
+        text = r.recognize_google(audio_data, language='pt-BR')
+        return text
     except sr.UnknownValueError:
+        return None
+    except sr.RequestError as e:
+        st.error(f"Erro no serviço de reconhecimento: {e}")
         return None
     except Exception as e:
         st.error(f"Erro ao transcrever: {e}")
@@ -337,8 +281,10 @@ def main():
     # Inicializa estados
     if "messages" not in st.session_state:
         st.session_state.messages = []
-    if "app_state" not in st.session_state:
-        st.session_state.app_state = "idle"
+    if "is_listening" not in st.session_state:
+        st.session_state.is_listening = False
+    if "is_processing" not in st.session_state:
+        st.session_state.is_processing = False
 
     # Barra lateral minimalista
     with st.sidebar:
@@ -348,11 +294,11 @@ def main():
         
         if "Voz" in input_mode:
             voice_accent = st.selectbox("Sotaque:", ("Brasil", "Portugal"))
-            silence_threshold = st.slider("Sensibilidade:", 100, 1000, 400, 50)
         
         if st.button("🧹 Limpar"):
             st.session_state.messages = []
-            st.session_state.app_state = "idle"
+            st.session_state.is_listening = False
+            st.session_state.is_processing = False
             st.rerun()
 
     # Título
@@ -366,23 +312,21 @@ def main():
 
     # MODO VOZ
     if "Voz" in input_mode:
-        state = st.session_state.app_state
-        
-        # Define visual do orbe
+        # Define visual do orbe baseado no estado
         orb_class = ""
         orb_icon = "🐵"
-        status_text = "Toque para ativar"
+        status_text = "Clique no orbe para falar"
         
-        if state == "listening":
+        if st.session_state.is_listening:
             orb_class = "listening"
             orb_icon = "🎤"
-            status_text = "Ouvindo..."
-        elif state == "processing":
+            status_text = "Ouvindo... Fale agora!"
+        elif st.session_state.is_processing:
             orb_class = "processing"
             orb_icon = "⚡"
             status_text = "Processando..."
         
-        # Renderiza orbe
+        # Container do orbe
         st.markdown(f"""
         <div class="orb-container">
             <div class="orb-wrapper">
@@ -394,36 +338,33 @@ def main():
         </div>
         """, unsafe_allow_html=True)
         
-        # Botão de ativação
-        if state == "idle":
-            if st.button("Ativar", key="activate", use_container_width=True):
-                st.session_state.app_state = "listening"
-                st.rerun()
-        
-        # Gravação
-        if state == "listening":
-            recorder = AudioRecorder(silence_threshold=silence_threshold)
-            audio_file = recorder.record()
+        # Gravador de áudio (oculto via CSS)
+        if not st.session_state.is_processing:
+            audio_bytes = audio_recorder(
+                text="",
+                recording_color="#ef4444",
+                neutral_color="#3b82f6",
+                icon_name="microphone",
+                icon_size="3x",
+                key="audio_recorder"
+            )
             
-            if audio_file:
-                st.session_state.app_state = "processing"
+            # Processa quando há áudio
+            if audio_bytes and not st.session_state.is_processing:
+                st.session_state.is_listening = False
+                st.session_state.is_processing = True
                 st.rerun()
                 
-                user_input = transcribe_audio_file(audio_file)
-                
-                # Remove arquivo temporário
-                try:
-                    os.remove(audio_file)
-                except:
-                    pass
+                # Transcreve
+                user_input = transcribe_audio(audio_bytes)
                 
                 if not user_input:
-                    st.toast("⚠️ Não entendi")
-                    st.session_state.app_state = "idle"
+                    st.toast("⚠️ Não consegui entender")
+                    st.session_state.is_processing = False
                     st.rerun()
-            else:
-                st.session_state.app_state = "idle"
-                st.rerun()
+            elif audio_bytes is None and not st.session_state.is_listening and not st.session_state.is_processing:
+                # Mostra que está pronto para gravar
+                st.session_state.is_listening = False
     
     # MODO TEXTO
     else:
@@ -436,8 +377,10 @@ def main():
         cmd_type, url, reply_text = check_commands(user_input)
         
         if cmd_type != "chat":
+            # Comando de redirecionamento
             ai_response = reply_text
             st.session_state.messages.append({"role": "bot", "content": ai_response})
+            st.toast(f"🚀 {ai_response}")
             open_link_js(url)
             
             if "Voz" in input_mode:
@@ -445,6 +388,7 @@ def main():
                 if audio_fp:
                     st.audio(audio_fp, format='audio/mp3')
         else:
+            # Conversa com IA
             chain = get_ai_chain()
             hist = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages[-6:]])
             ai_response = chain.invoke({"history": hist, "input": user_input})
@@ -456,7 +400,9 @@ def main():
                 if audio_fp:
                     st.audio(audio_fp, format='audio/mp3')
         
-        st.session_state.app_state = "idle"
+        # Reseta estados
+        st.session_state.is_listening = False
+        st.session_state.is_processing = False
         st.rerun()
 
     # HISTÓRICO
