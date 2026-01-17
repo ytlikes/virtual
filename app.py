@@ -8,10 +8,9 @@ import streamlit.components.v1 as components
 from gtts import gTTS
 import speech_recognition as sr
 from dotenv import load_dotenv
-from langchain.memory import ConversationBufferMemory
 from langchain_groq import ChatGroq
-from langchain.chains import LLMChain
-from langchain_core.prompts import PromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 from streamlit_mic_recorder import mic_recorder
 from enum import Enum
 from typing import Optional, Tuple
@@ -39,14 +38,6 @@ if not os.getenv("GROQ_API_KEY"):
 class Config:
     MODEL_NAME = "llama-3.1-8b-instant"
     LANGUAGE = 'pt-BR'
-    AI_TEMPLATE = """Você é um assistente pessoal inteligente.
-    Diretrizes:
-    - Seja extremamente breve (1 frase curta).
-    - Aja naturalmente.
-    
-    Histórico: {historico_conversa}
-    Usuário: {input}
-    Assistente:"""
 
 class CommandType(Enum):
     YOUTUBE = "youtube"
@@ -64,7 +55,6 @@ st.markdown("""
         color: #00ffcc;
     }
     
-    /* Balões de Chat */
     .chat-bubble {
         padding: 12px 18px;
         border-radius: 20px;
@@ -90,7 +80,6 @@ st.markdown("""
         border-bottom-left-radius: 4px;
     }
 
-    /* Botão de Gravar */
     div[data-testid="stVerticalBlock"] button {
         background-color: #ff0055 !important;
         border: none;
@@ -108,16 +97,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════
-# 🛠️ FERRAMENTAS (JAVASCRIPT E ÁUDIO)
+# 🛠️ FERRAMENTAS
 # ═══════════════════════════════════════════════════════════
 
 def open_url_automatically(url):
-    """Injeta JavaScript para abrir aba automaticamente"""
-    js = f"""
-    <script>
-        window.open('{url}', '_blank').focus();
-    </script>
-    """
+    js = f"<script>window.open('{url}', '_blank').focus();</script>"
     components.html(js, height=0, width=0)
 
 class AudioManager:
@@ -135,7 +119,7 @@ class AudioManager:
     @staticmethod
     def text_to_speech(text: str):
         try:
-            clean_text = re.sub(r'http\S+', '', text) # Não ler URLs
+            clean_text = re.sub(r'http\S+', '', text)
             tts = gTTS(text=clean_text, lang='pt', slow=False)
             audio_fp = io.BytesIO()
             tts.write_to_fp(audio_fp)
@@ -167,19 +151,29 @@ class CommandProcessor:
         words = [w for w in result.split() if w not in ['a', 'o', 'de', 'para', 'em', 'video', 'musica']]
         return ' '.join(words).strip()
 
+# ═══════════════════════════════════════════════════════════
+# 🧠 INTELIGÊNCIA ARTIFICIAL (MODERNIZADA)
+# ═══════════════════════════════════════════════════════════
+
 class AIManager:
     def __init__(self):
-        if 'chain' not in st.session_state:
-            prompt = PromptTemplate(input_variables=["historico_conversa", "input"], template=Config.AI_TEMPLATE)
-            llm = ChatGroq(model_name=Config.MODEL_NAME, temperature=0.6)
-            memory = ConversationBufferMemory(memory_key="historico_conversa", input_key="input")
-            st.session_state.chain = LLMChain(llm=llm, prompt=prompt, memory=memory)
+        # Aqui removemos a memória antiga que dava erro e usamos LCEL
+        self.llm = ChatGroq(model_name=Config.MODEL_NAME, temperature=0.6)
+        
+        self.prompt = ChatPromptTemplate.from_messages([
+            ("system", "Você é um assistente pessoal inteligente. Seja extremamente breve (1 frase)."),
+            ("user", "Histórico recente: {history}\n\nHumano: {input}")
+        ])
+        
+        self.chain = self.prompt | self.llm | StrOutputParser()
 
-    def get_response(self, text: str) -> str:
+    def get_response(self, text: str, history: list) -> str:
+        # Formata o histórico manualmente para evitar erros de dependência
+        history_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history[-4:]]) # Pega as últimas 4 mensagens
         try:
-            return st.session_state.chain.run(input=text)
-        except:
-            return "Estou reiniciando meus sistemas..."
+            return self.chain.invoke({"history": history_str, "input": text})
+        except Exception as e:
+            return f"Erro na IA: {str(e)}"
 
 # ═══════════════════════════════════════════════════════════
 # 📱 APP PRINCIPAL
@@ -188,19 +182,20 @@ class AIManager:
 def main():
     if 'messages' not in st.session_state: st.session_state.messages = []
     
-    # Header Futurista
+    # Inicializa a IA apenas uma vez
+    if 'ai_manager' not in st.session_state:
+        st.session_state.ai_manager = AIManager()
+    
     st.markdown("<h1 style='text-align: center; text-shadow: 0 0 10px #00ffcc;'>JARVIS <span style='font-size: 15px; vertical-align: top;'>ONLINE</span></h1>", unsafe_allow_html=True)
 
-    # --- INPUT ---
     col_mic, col_text = st.columns([1, 4])
     with col_mic:
         audio_data = mic_recorder(start_prompt="🔊", stop_prompt="⏹️", key='recorder', format="wav", use_container_width=True)
     with col_text:
-        text_input = st.chat_input("Comando de texto...")
+        text_input = st.chat_input("Comando...")
 
     user_input = AudioManager.process_mic_input(audio_data['bytes']) if audio_data else text_input
 
-    # --- PROCESSAMENTO ---
     if user_input:
         st.session_state.messages.append({"role": "user", "content": user_input})
         cmd_type, term = CommandProcessor.process(user_input)
@@ -210,36 +205,30 @@ def main():
 
         if cmd_type == CommandType.YOUTUBE:
             redirect_url = f"https://www.youtube.com/results?search_query={term}"
-            bot_reply = f"Executando protocolo de vídeo: {term}"
-            st.toast(f"🚀 Redirecionando para YouTube: {term}", icon="🎵")
+            bot_reply = f"Abrindo YouTube: {term}"
+            st.toast(f"🚀 Indo para YouTube: {term}", icon="🎵")
             
         elif cmd_type == CommandType.GOOGLE:
             redirect_url = f"https://www.google.com/search?q={term}"
-            bot_reply = f"Pesquisando na rede: {term}"
-            st.toast(f"🚀 Pesquisando no Google: {term}", icon="🔍")
+            bot_reply = f"Pesquisando: {term}"
+            st.toast(f"🚀 Pesquisando: {term}", icon="🔍")
             
         else:
-            bot_reply = AIManager().get_response(user_input)
+            # Chama a IA passando o histórico atual
+            with st.spinner("Processando..."):
+                bot_reply = st.session_state.ai_manager.get_response(user_input, st.session_state.messages)
 
-        # Salva e Fala
         st.session_state.messages.append({"role": "bot", "content": bot_reply})
+        
+        # Áudio
         audio = AudioManager.text_to_speech(bot_reply)
         if audio: st.audio(audio, format="audio/mp3", autoplay=True)
 
-        # REDIRECIONAMENTO AUTOMÁTICO (JavaScript)
         if redirect_url:
             open_url_automatically(redirect_url)
-            # Link de backup caso o pop-up bloqueie
-            st.markdown(f"<br><a href='{redirect_url}' target='_blank' style='background: #333; color: white; padding: 10px; border-radius: 10px; text-decoration: none;'>🔗 Clique aqui se não abrir automaticamente</a>", unsafe_allow_html=True)
-            time.sleep(2) # Pausa dramática antes do rerun
-            st.rerun()
-            
-        # Rerun para limpar input de texto (se for chat normal)
-        if cmd_type == CommandType.CHAT:
-            time.sleep(1)
+            time.sleep(2)
             st.rerun()
 
-    # --- HISTÓRICO ---
     for msg in reversed(st.session_state.messages):
         role_class = "user-bubble" if msg["role"] == "user" else "bot-bubble"
         st.markdown(f"<div class='chat-bubble {role_class}'>{msg['content']}</div>", unsafe_allow_html=True)
