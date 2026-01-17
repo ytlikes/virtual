@@ -43,9 +43,36 @@ st.markdown("""
     #MainMenu, footer {visibility: hidden;}
     .stDeployButton {display:none;}
 
-    /* Esconde o recorder padrão */
-    .stAudio {
-        display: none;
+    /* Esconde completamente o recorder padrão */
+    div[data-testid="stVerticalBlock"] > div:has(audio) {
+        position: absolute;
+        top: 40%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 15;
+        pointer-events: auto;
+        width: 250px !important;
+    }
+    
+    /* Botão de gravação visível e grande para mobile */
+    div[data-testid="stVerticalBlock"] > div:has(audio) > div {
+        opacity: 1 !important;
+        width: 100% !important;
+        height: 80px !important;
+        border-radius: 12px !important;
+        cursor: pointer;
+        background: rgba(56, 189, 248, 0.1) !important;
+        border: 2px solid rgba(56, 189, 248, 0.3) !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        font-size: 16px !important;
+        color: #38bdf8 !important;
+    }
+    
+    div[data-testid="stVerticalBlock"] > div:has(audio) button {
+        font-size: 18px !important;
+        padding: 1rem 2rem !important;
     }
 
     /* Container centralizado */
@@ -144,6 +171,7 @@ st.markdown("""
     .orb-icon {
         font-size: 60px;
         filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.5));
+        pointer-events: none;
     }
 
     /* Status text minimalista */
@@ -204,32 +232,45 @@ st.markdown("""
 
 @st.cache_resource
 def get_ai_chain():
-    llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0.4, max_tokens=150)
+    llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0.3, max_tokens=80)
     prompt = ChatPromptTemplate.from_template(
-        "Você é o MonkeyAI. Responda de forma breve e inteligente.\nHistórico:\n{history}\nHuman: {input}\nMonkeyAI:"
+        "Responda em uma frase curta e direta.\nPergunta: {input}\nResposta:"
     )
     return prompt | llm | StrOutputParser()
 
 def transcribe_audio(audio_bytes):
-    """Transcreve áudio bytes"""
+    """Transcreve áudio bytes de forma otimizada"""
+    if not audio_bytes or len(audio_bytes) < 1000:
+        return None
+        
     r = sr.Recognizer()
+    r.energy_threshold = 300
+    r.dynamic_energy_threshold = False
+    
     try:
-        audio_data = sr.AudioData(audio_bytes, 44100, 2)
-        text = r.recognize_google(audio_data, language='pt-BR')
-        return text
+        # Converte bytes para AudioData
+        audio_data = sr.AudioData(audio_bytes, 16000, 2)
+        
+        # Usa reconhecimento com timeout menor
+        text = r.recognize_google(audio_data, language='pt-BR', show_all=False)
+        return text if text else None
     except sr.UnknownValueError:
         return None
-    except sr.RequestError as e:
-        st.error(f"Erro no serviço de reconhecimento: {e}")
+    except sr.RequestError:
+        st.error("Erro de conexão")
         return None
     except Exception as e:
-        st.error(f"Erro ao transcrever: {e}")
+        st.error(f"Erro: {str(e)[:50]}")
         return None
 
 def text_to_speech_gtts(text, lang_choice):
-    """Gera áudio usando gTTS"""
+    """Gera áudio usando gTTS de forma rápida"""
     try:
+        # Limita tamanho da resposta para gerar áudio mais rápido
         clean_text = re.sub(r'http\S+', 'link', text)
+        if len(clean_text) > 200:
+            clean_text = clean_text[:200] + "..."
+        
         language = 'pt'
         tld = 'com.br' if lang_choice == 'Brasil' else 'pt'
         
@@ -238,8 +279,7 @@ def text_to_speech_gtts(text, lang_choice):
         tts.write_to_fp(audio_fp)
         audio_fp.seek(0)
         return audio_fp
-    except Exception as e:
-        st.warning(f"Erro ao gerar voz: {e}")
+    except Exception:
         return None
 
 def check_commands(text):
@@ -314,16 +354,16 @@ def main():
     if "Voz" in input_mode:
         # Define visual do orbe baseado no estado
         orb_class = ""
-        orb_icon = "🐵"
+        orb_icon = ""
         status_text = "Clique no orbe para falar"
         
         if st.session_state.is_listening:
             orb_class = "listening"
-            orb_icon = "🎤"
-            status_text = "Ouvindo... Fale agora!"
+            orb_icon = ""
+            status_text = "Ouvindo..."
         elif st.session_state.is_processing:
             orb_class = "processing"
-            orb_icon = "⚡"
+            orb_icon = ""
             status_text = "Processando..."
         
         # Container do orbe
@@ -338,33 +378,37 @@ def main():
         </div>
         """, unsafe_allow_html=True)
         
-        # Gravador de áudio (oculto via CSS)
+        # Gravador de áudio (invisível mas clicável sobre o orbe)
+        audio_bytes = None
         if not st.session_state.is_processing:
             audio_bytes = audio_recorder(
-                text="",
+                text="Clique para gravar",
                 recording_color="#ef4444",
                 neutral_color="#3b82f6",
                 icon_name="microphone",
-                icon_size="3x",
-                key="audio_recorder"
+                icon_size="2x",
+                key="audio_recorder",
+                pause_threshold=3.0,
+                sample_rate=16000
             )
-            
-            # Processa quando há áudio
-            if audio_bytes and not st.session_state.is_processing:
-                st.session_state.is_listening = False
-                st.session_state.is_processing = True
-                st.rerun()
-                
-                # Transcreve
-                user_input = transcribe_audio(audio_bytes)
-                
-                if not user_input:
-                    st.toast("⚠️ Não consegui entender")
-                    st.session_state.is_processing = False
+        
+        # Processa quando há áudio
+        if audio_bytes:
+            if len(audio_bytes) > 1000:  # Verifica se tem conteúdo suficiente
+                if not st.session_state.is_processing:
+                    st.session_state.is_listening = False
+                    st.session_state.is_processing = True
                     st.rerun()
-            elif audio_bytes is None and not st.session_state.is_listening and not st.session_state.is_processing:
-                # Mostra que está pronto para gravar
-                st.session_state.is_listening = False
+                    
+                    # Transcreve
+                    user_input = transcribe_audio(audio_bytes)
+                    
+                    if not user_input:
+                        st.toast("⚠️ Áudio muito curto ou não entendi")
+                        st.session_state.is_processing = False
+                        st.rerun()
+            else:
+                st.session_state.is_listening = True
     
     # MODO TEXTO
     else:
@@ -388,17 +432,17 @@ def main():
                 if audio_fp:
                     st.audio(audio_fp, format='audio/mp3')
         else:
-            # Conversa com IA
+            # Conversa com IA (modo rápido)
             chain = get_ai_chain()
-            hist = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages[-6:]])
-            ai_response = chain.invoke({"history": hist, "input": user_input})
+            ai_response = chain.invoke({"input": user_input})
             
             st.session_state.messages.append({"role": "bot", "content": ai_response})
             
+            # Gera áudio apenas se for modo voz
             if "Voz" in input_mode:
                 audio_fp = text_to_speech_gtts(ai_response, voice_accent)
                 if audio_fp:
-                    st.audio(audio_fp, format='audio/mp3')
+                    st.audio(audio_fp, format='audio/mp3', autoplay=True)
         
         # Reseta estados
         st.session_state.is_listening = False
