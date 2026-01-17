@@ -15,8 +15,8 @@ from langchain_core.output_parsers import StrOutputParser
 # ⚙️ CONFIGURAÇÃO & SEGURANÇA
 # ═══════════════════════════════════════════════════════════
 st.set_page_config(
-    page_title="Jarvis V4",
-    page_icon="⚛️",
+    page_title="MonkeyAI",
+    page_icon="🐵",
     layout="centered",
     initial_sidebar_state="expanded"
 )
@@ -134,6 +134,17 @@ st.markdown("""
             inset 0 0 50px rgba(255, 255, 255, 0.6);
     }
 
+    /* Estado ao clicar - Brilho intenso */
+    .orb-core:active {
+        transform: scale(1.12);
+        box-shadow: 
+            0 0 60px rgba(56, 189, 248, 1),
+            0 0 100px rgba(3, 105, 161, 0.9),
+            0 0 150px rgba(2, 132, 199, 0.7),
+            inset 0 0 60px rgba(255, 255, 255, 0.8);
+        filter: brightness(1.3);
+    }
+
     /* Estado de gravação ativa */
     .orb-core.recording {
         animation: recording-pulse 1s infinite ease-in-out;
@@ -145,6 +156,16 @@ st.markdown("""
             0 0 40px rgba(239, 68, 68, 0.9),
             0 0 80px rgba(185, 28, 28, 0.6),
             0 0 120px rgba(153, 27, 27, 0.4);
+    }
+
+    /* Estado desligado/idle com menos brilho */
+    .orb-core.idle {
+        box-shadow: 
+            0 0 15px rgba(56, 189, 248, 0.4),
+            0 0 30px rgba(3, 105, 161, 0.2),
+            0 0 50px rgba(2, 132, 199, 0.1),
+            inset 0 0 20px rgba(255, 255, 255, 0.2);
+        opacity: 0.8;
     }
 
     /* Estado de processamento */
@@ -243,7 +264,7 @@ def get_ai_chain():
     """Carrega a IA Llama-3 via Groq"""
     llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0.4, max_tokens=150)
     prompt = ChatPromptTemplate.from_template(
-        "Você é o Jarvis. Responda de forma breve, inteligente e prestativa.\nHistórico recente:\n{history}\nHuman: {input}\nJarvis:"
+        "Você é o MonkeyAI, um assistente inteligente. Responda de forma breve, inteligente e prestativa.\nHistórico recente:\n{history}\nHuman: {input}\nMonkeyAI:"
     )
     return prompt | llm | StrOutputParser()
 
@@ -403,7 +424,8 @@ def main():
     # --- TÍTULO ---
     st.markdown(
         "<h1 style='text-align: center; margin-bottom: 20px;'>"
-        "JARVIS <span style='color:#38bdf8; font-size:0.6em;'>V4</span>"
+        "MONKEY<span style='color:#38bdf8;'>AI</span> "
+        "<span style='font-size:0.5em; opacity:0.6;'>🐵</span>"
         "</h1>", 
         unsafe_allow_html=True
     )
@@ -444,10 +466,35 @@ def main():
             </div>
             """, unsafe_allow_html=True)
             
-            # Botão invisível para trigger
-            if st.button("🎤 Ativar Jarvis", key="orb_trigger", use_container_width=True):
+            # Botão invisível para trigger com efeito de clique
+            clicked = st.button("🎤 Ativar MonkeyAI", key="orb_trigger", use_container_width=True)
+            
+            # Adiciona efeito visual de clique com JavaScript
+            if clicked:
                 st.session_state.trigger_recording = True
                 st.session_state.orb_state = "recording"
+                
+                # Injeta CSS temporário para efeito de clique
+                components.html("""
+                <script>
+                    // Encontra o orbe e adiciona efeito de flash
+                    setTimeout(() => {
+                        const style = document.createElement('style');
+                        style.innerHTML = `
+                            .orb-core {
+                                animation: click-flash 0.3s ease-out !important;
+                            }
+                            @keyframes click-flash {
+                                0% { transform: scale(1); filter: brightness(1); }
+                                50% { transform: scale(1.15); filter: brightness(1.5); }
+                                100% { transform: scale(1); filter: brightness(1); }
+                            }
+                        `;
+                        document.head.appendChild(style);
+                    }, 100);
+                </script>
+                """, height=0)
+                
                 st.rerun()
         
         # Processamento de gravação
@@ -531,7 +578,7 @@ def main():
         st.divider()
         for msg in st.session_state.messages:
             css_class = "user-message" if msg["role"] == "user" else "bot-message"
-            label = "VOCÊ" if msg["role"] == "user" else "JARVIS"
+            label = "VOCÊ" if msg["role"] == "user" else "MONKEYAI 🐵"
             st.markdown(f"""
                 <div class="chat-message {css_class}">
                     <div class="message-label">{label}</div>
