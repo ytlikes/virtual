@@ -1,6 +1,7 @@
 streamlit
 langchain
 langchain-groq
+langchain-community
 python-dotenv
 SpeechRecognition
 gTTS
