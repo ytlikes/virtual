@@ -403,9 +403,9 @@ def main():
                     st.audio(audio_fp, format='audio/mp3')
         else:
             # Conversa com IA
-            with st.spinner("Pensando..."):
-                chain = get_ai_chain()
-                ai_response = chain.invoke({"input": user_input})
+            chain = get_ai_chain()
+            hist = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages[-6:]])
+            ai_response = chain.invoke({"history": hist, "input": user_input})
             
             st.session_state.messages.append({"role": "bot", "content": ai_response})
             
