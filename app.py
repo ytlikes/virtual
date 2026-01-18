@@ -239,32 +239,39 @@ def get_ai_chain():
     return prompt | llm | StrOutputParser()
 
 def transcribe_audio(audio_bytes):
-    """Transcreve áudio bytes de forma otimizada"""
-    if not audio_bytes or len(audio_bytes) < 1000:
+    """Transcreve áudio bytes tratando como arquivo WAV (CORRIGIDO)"""
+    if not audio_bytes:
         return None
+    
+    # Cria um "arquivo virtual" na memória com os bytes
+    audio_file = io.BytesIO(audio_bytes)
     
     r = sr.Recognizer()
     r.energy_threshold = 300
-    r.pause_threshold = 0.5  # Reduz delay
+    r.pause_threshold = 0.5
     
     try:
-        # Usa sample rate correto do audio_recorder
-        audio_data = sr.AudioData(audio_bytes, 44100, 2)
-        
-        # Reconhecimento direto sem timeout extra
+        # Usa AudioFile em vez de AudioData para ler o cabeçalho WAV corretamente
+        with sr.AudioFile(audio_file) as source:
+            # Lê todo o arquivo de áudio
+            audio_data = r.record(source)
+            
+        # Reconhecimento
         text = r.recognize_google(audio_data, language='pt-BR')
         return text.strip() if text else None
+        
     except sr.UnknownValueError:
         return None
-    except sr.RequestError:
+    except sr.RequestError as e:
+        print(f"Erro na API: {e}")
         return None
-    except Exception:
+    except Exception as e:
+        print(f"Erro geral: {e}")
         return None
 
 def text_to_speech_gtts(text, lang_choice):
     """Gera áudio usando gTTS de forma rápida"""
     try:
-        # Limita tamanho da resposta para gerar áudio mais rápido
         clean_text = re.sub(r'http\S+', 'link', text)
         if len(clean_text) > 200:
             clean_text = clean_text[:200] + "..."
@@ -386,8 +393,8 @@ def main():
                 icon_name="microphone",
                 icon_size="2x",
                 key="audio_recorder",
-                pause_threshold=2.0,
-                sample_rate=44100
+                pause_threshold=2.0
+                # sample_rate removido para evitar conflitos
             )
         
         # Processa áudio IMEDIATAMENTE quando recebido
@@ -415,7 +422,7 @@ def main():
                         ai_response = chain.invoke({"input": user_input})
                         st.session_state.messages.append({"role": "bot", "content": ai_response})
                         
-                        # Gera áudio de forma assíncrona (não bloqueia)
+                        # Gera áudio
                         try:
                             audio_fp = text_to_speech_gtts(ai_response, voice_accent)
                             if audio_fp:
@@ -426,7 +433,7 @@ def main():
                     st.session_state.is_processing = False
                     st.rerun()
                 else:
-                    st.toast("⚠️ Não entendi")
+                    st.toast("⚠️ Não entendi ou áudio vazio")
                     st.session_state.is_processing = False
                     st.rerun()
     
