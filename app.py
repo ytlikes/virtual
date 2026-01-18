@@ -75,21 +75,22 @@ st.markdown("""
         padding: 1rem 2rem !important;
     }
 
-    /* Container centralizado */
+    /* Container do Orbe - Altura ajustada para caber o chat embaixo */
     .orb-container {
         display: flex;
         flex-direction: column;
         justify-content: center;
         align-items: center;
-        min-height: 65vh;
+        min-height: 350px; /* Reduzido para aproximar o chat */
+        margin-bottom: 20px;
         gap: 2rem;
     }
 
     /* Orbe wrapper */
     .orb-wrapper {
         position: relative;
-        width: 200px;
-        height: 200px;
+        width: 180px;
+        height: 180px;
         display: flex;
         justify-content: center;
         align-items: center;
@@ -98,8 +99,8 @@ st.markdown("""
 
     /* Núcleo do orbe - ESTADO IDLE */
     .orb-core {
-        width: 180px;
-        height: 180px;
+        width: 160px;
+        height: 160px;
         border-radius: 50%;
         background: radial-gradient(circle at 30% 30%, 
             rgba(56, 189, 248, 0.4), 
@@ -189,39 +190,53 @@ st.markdown("""
     }
 
     /* Chat messages */
+    .chat-container {
+        margin-top: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+    }
+
     .chat-message {
         padding: 1rem;
-        border-radius: 10px;
-        margin-bottom: 0.8rem;
-        animation: fadeIn 0.3s ease;
+        border-radius: 12px;
+        animation: fadeIn 0.4s ease;
+        position: relative;
     }
 
     @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(5px); }
+        from { opacity: 0; transform: translateY(10px); }
         to { opacity: 1; transform: translateY(0); }
     }
 
     .user-message {
-        background-color: rgba(56, 189, 248, 0.1);
-        border-left: 3px solid #38bdf8;
+        background-color: rgba(56, 189, 248, 0.15);
+        border: 1px solid rgba(56, 189, 248, 0.3);
         text-align: right;
+        align-self: flex-end;
+        margin-left: 20%;
     }
 
     .bot-message {
-        background-color: rgba(31, 41, 55, 0.5);
-        border-left: 3px solid rgba(168, 85, 247, 0.5);
+        background-color: rgba(31, 41, 55, 0.6);
+        border: 1px solid rgba(168, 85, 247, 0.3);
+        text-align: left;
+        align-self: flex-start;
+        margin-right: 20%;
     }
 
     .message-text {
-        font-size: 15px;
-        line-height: 1.5;
+        font-size: 16px;
+        line-height: 1.6;
+        color: #e0f2fe;
     }
 
     .message-label {
-        font-size: 11px;
-        font-weight: 600;
-        opacity: 0.6;
-        margin-bottom: 4px;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        opacity: 0.5;
+        margin-bottom: 6px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -232,49 +247,36 @@ st.markdown("""
 
 @st.cache_resource
 def get_ai_chain():
-    llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0.3, max_tokens=80)
+    llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0.3, max_tokens=100)
     prompt = ChatPromptTemplate.from_template(
-        "Responda em uma frase curta e direta.\nPergunta: {input}\nResposta:"
+        "Você é um assistente útil e direto. Responda em português.\nPergunta: {input}\nResposta:"
     )
     return prompt | llm | StrOutputParser()
 
 def transcribe_audio(audio_bytes):
-    """Transcreve áudio bytes tratando como arquivo WAV (CORRIGIDO)"""
+    """Transcreve áudio bytes tratando como arquivo WAV"""
     if not audio_bytes:
         return None
     
-    # Cria um "arquivo virtual" na memória com os bytes
     audio_file = io.BytesIO(audio_bytes)
-    
     r = sr.Recognizer()
     r.energy_threshold = 300
     r.pause_threshold = 0.5
     
     try:
-        # Usa AudioFile em vez de AudioData para ler o cabeçalho WAV corretamente
         with sr.AudioFile(audio_file) as source:
-            # Lê todo o arquivo de áudio
             audio_data = r.record(source)
-            
-        # Reconhecimento
         text = r.recognize_google(audio_data, language='pt-BR')
         return text.strip() if text else None
-        
-    except sr.UnknownValueError:
-        return None
-    except sr.RequestError as e:
-        print(f"Erro na API: {e}")
-        return None
-    except Exception as e:
-        print(f"Erro geral: {e}")
+    except Exception:
         return None
 
 def text_to_speech_gtts(text, lang_choice):
-    """Gera áudio usando gTTS de forma rápida"""
+    """Gera áudio usando gTTS"""
     try:
         clean_text = re.sub(r'http\S+', 'link', text)
-        if len(clean_text) > 200:
-            clean_text = clean_text[:200] + "..."
+        if len(clean_text) > 250:
+            clean_text = clean_text[:250] + "..."
         
         language = 'pt'
         tld = 'com.br' if lang_choice == 'Brasil' else 'pt'
@@ -288,193 +290,157 @@ def text_to_speech_gtts(text, lang_choice):
         return None
 
 def check_commands(text):
-    """Verifica comandos de redirecionamento"""
     text_lower = text.lower()
     
-    # YouTube
-    if re.search(r'\b(tocar|ouvir|ver|assistir|youtube|vídeo|música)\b', text_lower):
-        term = re.sub(
-            r'\b(tocar|ouvir|ver|assistir|video|vídeo|musica|música|no|youtube|o|a|de|da|do)\b',
-            '', text_lower, flags=re.IGNORECASE
-        ).strip()
-        
+    if re.search(r'\b(tocar|ouvir|ver|assistir|youtube|vídeo)\b', text_lower):
+        term = re.sub(r'\b(tocar|ouvir|ver|assistir|video|vídeo|musica|música|no|youtube|o|a|de|da|do)\b', '', text_lower, flags=re.IGNORECASE).strip()
         if term:
-            url = f"https://www.youtube.com/results?search_query={term.replace(' ', '+')}"
-            return "youtube", url, f"Abrindo YouTube: {term}"
+            return "youtube", f"https://www.youtube.com/results?search_query={term.replace(' ', '+')}", f"Abrindo YouTube: {term}"
     
-    # Google
     if re.search(r'\b(pesquisar|buscar|google|procurar)\b', text_lower):
-        term = re.sub(
-            r'\b(pesquisar|buscar|google|procurar|sobre|o que é|a|no)\b',
-            '', text_lower, flags=re.IGNORECASE
-        ).strip()
-        
+        term = re.sub(r'\b(pesquisar|buscar|google|procurar|sobre|o que é|a|no)\b', '', text_lower, flags=re.IGNORECASE).strip()
         if term:
-            url = f"https://www.google.com/search?q={term.replace(' ', '+')}"
-            return "google", url, f"Pesquisando: {term}"
+            return "google", f"https://www.google.com/search?q={term.replace(' ', '+')}", f"Pesquisando: {term}"
     
     return "chat", None, None
 
 def open_link_js(url):
-    """Abre link em nova aba"""
     components.html(f"<script>window.open('{url}', '_blank');</script>", height=0)
 
 # ═══════════════════════════════════════════════════════════
 # 📱 INTERFACE PRINCIPAL
 # ═══════════════════════════════════════════════════════════
 def main():
-    # Inicializa estados
     if "messages" not in st.session_state:
         st.session_state.messages = []
-    if "is_listening" not in st.session_state:
-        st.session_state.is_listening = False
     if "is_processing" not in st.session_state:
         st.session_state.is_processing = False
 
-    # Barra lateral minimalista
+    # Sidebar
     with st.sidebar:
         st.header("⚙️ Config")
-        
         input_mode = st.radio("Modo:", ("🗣️ Voz", "⌨️ Texto"))
-        
-        if "Voz" in input_mode:
-            voice_accent = st.selectbox("Sotaque:", ("Brasil", "Portugal"))
-        
-        if st.button("🧹 Limpar"):
+        voice_accent = st.selectbox("Sotaque:", ("Brasil", "Portugal")) if "Voz" in input_mode else "Brasil"
+        if st.button("🧹 Limpar Chat"):
             st.session_state.messages = []
-            st.session_state.is_listening = False
             st.session_state.is_processing = False
             st.rerun()
 
     # Título
     st.markdown(
-        "<h1 style='text-align: center; margin-bottom: 40px;'>"
+        "<h1 style='text-align: center; margin-bottom: 20px;'>"
         "MONKEY<span style='color:#38bdf8;'>AI</span></h1>", 
         unsafe_allow_html=True
     )
 
-    user_input = None
+    # ─────────────────────────────────────────────────────────
+    # ÁREA DE INPUT (VOZ OU TEXTO)
+    # ─────────────────────────────────────────────────────────
+    
+    # Placeholder para interação
+    new_user_input = None
 
-    # MODO VOZ
     if "Voz" in input_mode:
-        # Define visual do orbe baseado no estado
-        orb_class = ""
-        orb_icon = ""
-        status_text = "Clique no orbe para falar"
+        # Visual do Orbe
+        orb_class = "processing" if st.session_state.is_processing else ""
+        status_text = "Processando..." if st.session_state.is_processing else "Toque para falar"
         
-        if st.session_state.is_listening:
-            orb_class = "listening"
-            orb_icon = ""
-            status_text = "Ouvindo..."
-        elif st.session_state.is_processing:
-            orb_class = "processing"
-            orb_icon = ""
-            status_text = "Processando..."
-        
-        # Container do orbe
         st.markdown(f"""
         <div class="orb-container">
             <div class="orb-wrapper">
                 <div class="orb-core {orb_class}">
-                    <div class="orb-icon">{orb_icon}</div>
+                    <div class="orb-icon"></div>
                 </div>
             </div>
             <div class="status-text">{status_text}</div>
         </div>
         """, unsafe_allow_html=True)
         
-        # Gravador de áudio
+        # Recorder (só mostra se não estiver processando)
         audio_bytes = None
         if not st.session_state.is_processing:
             audio_bytes = audio_recorder(
-                text="🎤 Gravar",
+                text="", # Texto vazio para limpar visual
                 recording_color="#ef4444",
                 neutral_color="#3b82f6",
                 icon_name="microphone",
                 icon_size="2x",
                 key="audio_recorder",
                 pause_threshold=2.0
-                # sample_rate removido para evitar conflitos
             )
         
-        # Processa áudio IMEDIATAMENTE quando recebido
-        if audio_bytes and len(audio_bytes) > 2000:
-            if not st.session_state.is_processing:
-                st.session_state.is_processing = True
-                
-                # Transcreve ANTES do rerun
-                user_input = transcribe_audio(audio_bytes)
-                
-                if user_input:
-                    # Adiciona ao histórico
-                    st.session_state.messages.append({"role": "user", "content": user_input})
-                    
-                    # Processa comando
-                    cmd_type, url, reply_text = check_commands(user_input)
-                    
-                    if cmd_type != "chat":
-                        st.session_state.messages.append({"role": "bot", "content": reply_text})
-                        st.toast(f"🚀 {reply_text}")
-                        open_link_js(url)
-                    else:
-                        # IA - executa direto
-                        chain = get_ai_chain()
-                        ai_response = chain.invoke({"input": user_input})
-                        st.session_state.messages.append({"role": "bot", "content": ai_response})
-                        
-                        # Gera áudio
-                        try:
-                            audio_fp = text_to_speech_gtts(ai_response, voice_accent)
-                            if audio_fp:
-                                st.session_state['last_audio'] = audio_fp
-                        except:
-                            pass
-                    
-                    st.session_state.is_processing = False
-                    st.rerun()
-                else:
-                    st.toast("⚠️ Não entendi ou áudio vazio")
-                    st.session_state.is_processing = False
-                    st.rerun()
-    
-    # MODO TEXTO
-    else:
-        user_input = st.chat_input("Digite aqui...")
-        
-        # Processamento modo texto
-        if user_input:
-            st.session_state.messages.append({"role": "user", "content": user_input})
+        # Lógica de processamento de Voz
+        if audio_bytes and len(audio_bytes) > 2000 and not st.session_state.is_processing:
+            st.session_state.is_processing = True
+            text_transcribed = transcribe_audio(audio_bytes)
             
-            cmd_type, url, reply_text = check_commands(user_input)
-            
-            if cmd_type != "chat":
-                st.session_state.messages.append({"role": "bot", "content": reply_text})
-                st.toast(f"🚀 {reply_text}")
-                open_link_js(url)
+            if text_transcribed:
+                new_user_input = text_transcribed
             else:
-                chain = get_ai_chain()
-                ai_response = chain.invoke({"input": user_input})
-                st.session_state.messages.append({"role": "bot", "content": ai_response})
+                st.toast("⚠️ Não entendi")
+                st.session_state.is_processing = False
+                st.rerun()
+
+    else:
+        # Modo Texto
+        new_user_input = st.chat_input("Digite sua mensagem...")
+
+    # ─────────────────────────────────────────────────────────
+    # PROCESSAMENTO CENTRALIZADO (VOZ E TEXTO)
+    # ─────────────────────────────────────────────────────────
+    if new_user_input:
+        # 1. Adiciona pergunta do usuário
+        st.session_state.messages.append({"role": "user", "content": new_user_input})
+        
+        # 2. Verifica comandos
+        cmd_type, url, reply_text = check_commands(new_user_input)
+        
+        if cmd_type != "chat":
+            # Resposta de comando
+            st.session_state.messages.append({"role": "bot", "content": reply_text})
+            open_link_js(url)
+        else:
+            # Resposta da IA
+            chain = get_ai_chain()
+            ai_response = chain.invoke({"input": new_user_input})
+            st.session_state.messages.append({"role": "bot", "content": ai_response})
             
-            st.rerun()
-    
-    # Reproduz último áudio se existir
+            # Se for modo voz, gera áudio
+            if "Voz" in input_mode:
+                audio_fp = text_to_speech_gtts(ai_response, voice_accent)
+                if audio_fp:
+                    st.session_state['last_audio'] = audio_fp
+
+        st.session_state.is_processing = False
+        st.rerun()
+
+    # Toca áudio se houver (Auto-play)
     if 'last_audio' in st.session_state and st.session_state.last_audio:
         st.audio(st.session_state.last_audio, format='audio/mp3', autoplay=True)
         st.session_state.last_audio = None
 
-    # HISTÓRICO
+    # ─────────────────────────────────────────────────────────
+    # VISUALIZAÇÃO DO CHAT (SEMPRE ABAIXO DO INPUT DE VOZ)
+    # ─────────────────────────────────────────────────────────
     if st.session_state.messages:
-        st.divider()
+        # Container HTML para o chat
+        chat_html = '<div class="chat-container">'
+        
+        # Inverte a lista para mostrar as mais recentes no topo (opcional, aqui mantive padrão)
+        # Se quiser estilo WhatsApp (novas embaixo), mantenha a ordem normal.
         for msg in st.session_state.messages:
-            css = "user-message" if msg["role"] == "user" else "bot-message"
+            role_class = "user-message" if msg["role"] == "user" else "bot-message"
             label = "VOCÊ" if msg["role"] == "user" else "MONKEYAI"
-            st.markdown(f"""
-                <div class="chat-message {css}">
+            
+            chat_html += f"""
+                <div class="chat-message {role_class}">
                     <div class="message-label">{label}</div>
                     <div class="message-text">{msg['content']}</div>
                 </div>
-            """, unsafe_allow_html=True)
+            """
+        
+        chat_html += '</div>'
+        st.markdown(chat_html, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
