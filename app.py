@@ -12,7 +12,7 @@ from langchain_core.output_parsers import StrOutputParser
 from audio_recorder_streamlit import audio_recorder
 
 # ═══════════════════════════════════════════════════════════
-# ⚙️ CONFIGURAÇÃO INICIAL
+# ⚙️ CONFIGURAÇÃO
 # ═══════════════════════════════════════════════════════════
 st.set_page_config(
     page_title="MonkeyAI",
@@ -21,51 +21,45 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Carrega API Key
 load_dotenv()
 if "GROQ_API_KEY" in st.secrets:
     os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
 
 if not os.getenv("GROQ_API_KEY"):
-    st.error("⚠️ Erro: Chave API Groq não configurada no .env ou secrets.")
+    st.error("⚠️ Erro: Chave API Groq não configurada.")
     st.stop()
 
 # ═══════════════════════════════════════════════════════════
-# 🎨 CSS COMPLETO (ESTILO VISUAL)
+# 🎨 CSS (Visual Ajustado)
 # ═══════════════════════════════════════════════════════════
 st.markdown("""
 <style>
-    /* Fundo e cores gerais */
     .stApp {
         background-color: #000000;
         background-image: radial-gradient(circle at center, #0a0e1a 0%, #000000 100%);
         color: #e0f2fe;
     }
-    
-    /* Remove elementos padrão do Streamlit */
     #MainMenu, footer, .stDeployButton {visibility: hidden;}
 
-    /* ─── ESTILOS DO GRAVADOR (ESCONDIDO/ESTILIZADO) ─── */
+    /* Posicionamento do gravador (invisível sobre o orbe) */
     div[data-testid="stVerticalBlock"] > div:has(audio) {
         position: absolute;
         top: 35%; 
         left: 50%;
         transform: translate(-50%, -50%);
         z-index: 15;
-        width: 200px !important;
+        width: 180px !important;
         pointer-events: auto;
     }
-    
-    /* Botão de gravação transparente sobre o orbe */
     div[data-testid="stVerticalBlock"] > div:has(audio) > div {
-        opacity: 0.01 !important; /* Quase invisível mas clicável */
+        opacity: 0.01 !important;
         width: 100% !important;
         height: 180px !important;
         border-radius: 50% !important;
         cursor: pointer;
     }
 
-    /* ─── ESTILOS DO ORBE (ANIMAÇÃO) ─── */
+    /* Orbe */
     .orb-container {
         display: flex;
         flex-direction: column;
@@ -75,7 +69,6 @@ st.markdown("""
         margin-bottom: 20px;
         min-height: 250px;
     }
-
     .orb-wrapper {
         position: relative;
         width: 160px;
@@ -84,7 +77,6 @@ st.markdown("""
         justify-content: center;
         align-items: center;
     }
-
     .orb-core {
         width: 140px;
         height: 140px;
@@ -94,31 +86,18 @@ st.markdown("""
         transition: all 0.4s ease;
         animation: idle-pulse 4s infinite ease-in-out;
     }
-
-    .orb-core.listening {
-        background: radial-gradient(circle at 30% 30%, rgba(239, 68, 68, 0.8), rgba(185, 28, 28, 1) 50%, rgba(80, 10, 10, 1) 100%);
-        box-shadow: 0 0 50px rgba(239, 68, 68, 0.6);
-        animation: listening-pulse 1.2s infinite ease-in-out;
-    }
-
     .orb-core.processing {
         background: radial-gradient(circle at 30% 30%, rgba(168, 85, 247, 0.8), rgba(126, 34, 206, 1) 50%, rgba(60, 10, 80, 1) 100%);
         box-shadow: 0 0 50px rgba(168, 85, 247, 0.6);
         animation: processing-spin 2s infinite linear;
     }
-
+    
     @keyframes idle-pulse { 0%, 100% { opacity: 0.8; } 50% { opacity: 1; } }
-    @keyframes listening-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
     @keyframes processing-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
-    .status-text {
-        margin-top: 15px;
-        font-size: 14px;
-        letter-spacing: 1px;
-        opacity: 0.7;
-    }
+    .status-text { margin-top: 15px; font-size: 14px; opacity: 0.7; }
 
-    /* ─── ESTILOS DO CHAT UNIFICADO ─── */
+    /* Chat */
     .chat-container {
         display: flex;
         flex-direction: column;
@@ -127,45 +106,30 @@ st.markdown("""
         margin-top: 10px;
         border-top: 1px solid rgba(255,255,255,0.1);
     }
-
-    .chat-row {
-        display: flex;
-        width: 100%;
-    }
-
+    .chat-row { display: flex; width: 100%; margin-bottom: 10px; }
     .row-user { justify-content: flex-end; }
     .row-bot { justify-content: flex-start; }
-
+    
     .chat-bubble {
         max-width: 80%;
         padding: 12px 16px;
         border-radius: 12px;
         font-size: 15px;
         line-height: 1.5;
-        position: relative;
     }
-
     .bubble-user {
         background-color: rgba(56, 189, 248, 0.15);
         border: 1px solid rgba(56, 189, 248, 0.3);
         color: #e0f2fe;
         border-bottom-right-radius: 2px;
     }
-
     .bubble-bot {
         background-color: rgba(31, 41, 55, 0.7);
         border: 1px solid rgba(168, 85, 247, 0.3);
         color: #d8b4fe;
         border-bottom-left-radius: 2px;
     }
-    
-    .bubble-label {
-        font-size: 10px;
-        opacity: 0.5;
-        margin-bottom: 4px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
+    .bubble-label { font-size: 10px; opacity: 0.5; margin-bottom: 4px; text-transform: uppercase; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -175,98 +139,77 @@ st.markdown("""
 
 @st.cache_resource
 def get_ai_chain():
-    """Configura o modelo Llama via Groq"""
     llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0.3, max_tokens=150)
     prompt = ChatPromptTemplate.from_template(
-        "Você é o MonkeyAI, um assistente inteligente. Responda em português de forma concisa.\nPergunta: {input}\nResposta:"
+        "Você é o MonkeyAI. Responda em português de forma curta e prestativa.\nPergunta: {input}\nResposta:"
     )
     return prompt | llm | StrOutputParser()
 
 def transcribe_audio(audio_bytes):
-    """Transcreve áudio bytes (CORRIGIDO PARA ARQUIVOS WAV)"""
-    if not audio_bytes:
-        return None
-    
-    # IMPORTANTE: Converte bytes crus em arquivo virtual
+    if not audio_bytes: return None
     audio_file = io.BytesIO(audio_bytes)
     r = sr.Recognizer()
-    
     try:
         with sr.AudioFile(audio_file) as source:
             audio_data = r.record(source)
-        
         text = r.recognize_google(audio_data, language='pt-BR')
         return text.strip() if text else None
-    except Exception:
-        return None
+    except: return None
 
 def text_to_speech_gtts(text):
-    """Gera áudio usando gTTS"""
     try:
-        # Limpa texto para evitar leitura de links longos
-        clean_text = re.sub(r'http\S+', 'um link', text)
-        if len(clean_text) > 300:
-            clean_text = clean_text[:300]
-        
-        tts = gTTS(text=clean_text, lang='pt', tld='com.br', slow=False)
-        audio_fp = io.BytesIO()
-        tts.write_to_fp(audio_fp)
-        audio_fp.seek(0)
-        return audio_fp
-    except:
-        return None
+        clean = re.sub(r'http\S+', 'link', text)[:300]
+        tts = gTTS(text=clean, lang='pt', tld='com.br', slow=False)
+        fp = io.BytesIO()
+        tts.write_to_fp(fp)
+        fp.seek(0)
+        return fp
+    except: return None
 
 def check_commands(text):
-    """Verifica comandos de sistema (Youtube/Google)"""
-    text_lower = text.lower()
-    
-    if re.search(r'\b(youtube|vídeo)\b', text_lower):
-        term = re.sub(r'\b(youtube|vídeo|assistir|ver|tocar|ouvir)\b', '', text_lower, flags=re.IGNORECASE).strip()
-        if term:
-            return "youtube", f"https://www.youtube.com/results?search_query={term.replace(' ', '+')}", f"Abrindo YouTube para: {term}"
-    
-    if re.search(r'\b(google|pesquisar|buscar)\b', text_lower):
-        term = re.sub(r'\b(google|pesquisar|buscar|procurar|o que é)\b', '', text_lower, flags=re.IGNORECASE).strip()
-        if term:
-            return "google", f"https://www.google.com/search?q={term.replace(' ', '+')}", f"Pesquisando no Google: {term}"
-            
+    text = text.lower()
+    if re.search(r'\b(youtube|vídeo)\b', text):
+        term = re.sub(r'\b(youtube|vídeo|assistir|ver|tocar)\b', '', text).strip()
+        if term: return "youtube", f"https://www.youtube.com/results?search_query={term.replace(' ', '+')}", f"YouTube: {term}"
+    if re.search(r'\b(google|pesquisar)\b', text):
+        term = re.sub(r'\b(google|pesquisar|buscar)\b', '', text).strip()
+        if term: return "google", f"https://www.google.com/search?q={term.replace(' ', '+')}", f"Google: {term}"
     return "chat", None, None
 
 def open_link_js(url):
     components.html(f"<script>window.open('{url}', '_blank');</script>", height=0)
 
 # ═══════════════════════════════════════════════════════════
-# 📱 LÓGICA PRINCIPAL DA INTERFACE
+# 📱 LÓGICA PRINCIPAL
 # ═══════════════════════════════════════════════════════════
 def main():
-    # Inicializa Estados
+    # Inicializa variáveis de estado
     if "messages" not in st.session_state:
         st.session_state.messages = []
     if "is_processing" not in st.session_state:
         st.session_state.is_processing = False
+    if "last_processed_audio" not in st.session_state:
+        st.session_state.last_processed_audio = b"" # Armazena bytes do último áudio processado
 
-    # Sidebar Config
+    # Sidebar
     with st.sidebar:
-        st.header("MonkeyAI Config")
-        input_mode = st.radio("Modo de Entrada:", ("🗣️ Voz", "⌨️ Texto"))
-        if st.button("Limpar Conversa"):
+        st.header("Config")
+        input_mode = st.radio("Modo:", ("🗣️ Voz", "⌨️ Texto"))
+        if st.button("Limpar"):
             st.session_state.messages = []
+            st.session_state.last_processed_audio = b""
             st.rerun()
 
     # Título
     st.markdown("<h1 style='text-align: center;'>MONKEY<span style='color:#38bdf8;'>AI</span></h1>", unsafe_allow_html=True)
 
-    # Variável para armazenar o novo input (seja voz ou texto)
+    # Variável para capturar nova entrada
     new_input = None
 
-    # ─────────────────────────────────────────────────────────
-    # 1. ZONA DE INPUT (VOZ NO TOPO OU TEXTO EMBAIXO)
-    # ─────────────────────────────────────────────────────────
-    
+    # 1. ÁREA DO ORBE / GRAVADOR
     if "Voz" in input_mode:
-        # Visual do Orbe
         orb_status = "processing" if st.session_state.is_processing else ""
-        label_status = "Processando..." if st.session_state.is_processing else "Toque no orbe para falar"
+        label_status = "Processando..." if st.session_state.is_processing else "Toque para falar"
         
         st.markdown(f"""
         <div class="orb-container">
@@ -277,91 +220,77 @@ def main():
         </div>
         """, unsafe_allow_html=True)
         
-        # O Gravador (Invisível, mas funcional sobre o orbe)
+        # Gravador
         audio_bytes = audio_recorder(
-            text="", 
-            recording_color="#ef4444", 
-            neutral_color="#3b82f6", 
-            icon_size="1x",
-            key="voice_rec",
-            pause_threshold=2.0
+            text="", recording_color="#ef4444", neutral_color="#3b82f6", 
+            icon_size="1x", key="voice_rec", pause_threshold=2.0
         )
         
-        # Processamento do Áudio
-        if audio_bytes and len(audio_bytes) > 2000 and not st.session_state.is_processing:
+        # LÓGICA ANTI-REPETIÇÃO E PROCESSAMENTO
+        # Verifica se tem áudio E se ele é diferente do último processado
+        if audio_bytes and len(audio_bytes) > 2000 and audio_bytes != st.session_state.last_processed_audio:
             st.session_state.is_processing = True
+            
+            # 1. Marca como processado para não repetir no loop
+            st.session_state.last_processed_audio = audio_bytes
+            
+            # 2. Transcreve
             transcription = transcribe_audio(audio_bytes)
             
             if transcription:
                 new_input = transcription
             else:
-                st.toast("⚠️ Não entendi o áudio")
+                st.toast("⚠️ Áudio não compreendido")
                 st.session_state.is_processing = False
                 st.rerun()
 
-    # ─────────────────────────────────────────────────────────
-    # 2. RENDERIZAÇÃO DO CHAT (HISTÓRICO)
-    # ─────────────────────────────────────────────────────────
-    
-    # Container do Chat (Sempre visível abaixo do orbe)
-    st.markdown('<div class="chat-container">', unsafe_allow_html=True)
-    
-    for msg in st.session_state.messages:
-        row_class = "row-user" if msg["role"] == "user" else "row-bot"
-        bubble_class = "bubble-user" if msg["role"] == "user" else "bubble-bot"
-        label = "VOCÊ" if msg["role"] == "user" else "MONKEY AI"
-        
-        st.markdown(f"""
-            <div class="chat-row {row_class}">
-                <div class="chat-bubble {bubble_class}">
-                    <div class="bubble-label">{label}</div>
-                    {msg['content']}
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-        
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # ─────────────────────────────────────────────────────────
-    # 3. INPUT DE TEXTO (SELECIONADO)
-    # ─────────────────────────────────────────────────────────
+    # 2. INPUT TEXTO
     if "Texto" in input_mode:
-        text_input = st.chat_input("Digite sua mensagem...")
+        text_input = st.chat_input("Mensagem...")
         if text_input:
             new_input = text_input
 
-    # ─────────────────────────────────────────────────────────
-    # 4. LÓGICA CENTRAL (PROCESSAR COMANDOS/IA)
-    # ─────────────────────────────────────────────────────────
+    # 3. PROCESSAMENTO DE ENTRADA (CHAT)
     if new_input:
         # Adiciona pergunta do usuário
         st.session_state.messages.append({"role": "user", "content": new_input})
         
-        # Verifica Comandos
-        cmd, url, response_text = check_commands(new_input)
+        cmd, url, resp = check_commands(new_input)
         
         if cmd != "chat":
-            # Resposta de Comando
-            st.session_state.messages.append({"role": "bot", "content": response_text})
+            st.session_state.messages.append({"role": "bot", "content": resp})
             open_link_js(url)
         else:
-            # Resposta da IA
             chain = get_ai_chain()
             ai_reply = chain.invoke({"input": new_input})
             st.session_state.messages.append({"role": "bot", "content": ai_reply})
             
-            # Gera áudio apenas se estiver no modo voz
             if "Voz" in input_mode:
                 audio_fp = text_to_speech_gtts(ai_reply)
                 if audio_fp:
                     st.session_state['last_audio'] = audio_fp
 
         st.session_state.is_processing = False
-        st.rerun()
+        st.rerun() # FORÇA ATUALIZAÇÃO IMEDIATA DA TELA
 
-    # ─────────────────────────────────────────────────────────
-    # 5. AUTO-PLAY ÁUDIO
-    # ─────────────────────────────────────────────────────────
+    # 4. EXIBIÇÃO DO CHAT (Agora processado antes, então aparece atualizado)
+    st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+    for msg in st.session_state.messages:
+        r_cls = "row-user" if msg["role"] == "user" else "row-bot"
+        b_cls = "bubble-user" if msg["role"] == "user" else "bubble-bot"
+        lbl = "VOCÊ" if msg["role"] == "user" else "MONKEY AI"
+        
+        st.markdown(f"""
+            <div class="chat-row {r_cls}">
+                <div class="chat-bubble {b_cls}">
+                    <div class="bubble-label">{lbl}</div>
+                    {msg['content']}
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # 5. PLAYBACK DE ÁUDIO (Auto-play)
     if 'last_audio' in st.session_state and st.session_state.last_audio:
         st.audio(st.session_state.last_audio, format='audio/mp3', autoplay=True)
         st.session_state.last_audio = None
